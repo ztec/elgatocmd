@@ -1,0 +1,7 @@
+/bin/
+/dist/
+/.elgatolight-release-version
+/.venv/
+/.pytest_cache/
+__pycache__/
+*.py[cod]

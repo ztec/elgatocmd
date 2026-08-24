@@ -1,0 +1,5 @@
+# Managed by elgatolight setup.
+# Permit the active desktop user to access the Key Light Neo's HID interface.
+# Explicitly schedule uaccess because this project rule sorts after
+# systemd's 73-seat-late.rules, which normally schedules the ACL helper.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0fd9", ATTRS{idProduct}=="00a0", MODE="0660", TAG+="uaccess", RUN{builtin}+="uaccess"
