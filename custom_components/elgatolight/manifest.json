@@ -1,0 +1,13 @@
+{
+  "codeowners": ["@REPOSITORY_OWNER_PLACEHOLDER"],
+  "config_flow": true,
+  "documentation": "https://REPOSITORY_URL_PLACEHOLDER.invalid/elgatolight",
+  "domain": "elgatolight",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://REPOSITORY_URL_PLACEHOLDER.invalid/elgatolight/issues",
+  "name": "Elgato USB Light Bridge",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

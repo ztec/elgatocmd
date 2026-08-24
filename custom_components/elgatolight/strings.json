@@ -1,0 +1,13 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Only one Elgato USB Light Bridge receiver can be configured."
+    },
+    "step": {
+      "user": {
+        "description": "Enable the receiver for outbound elgatolight daemon connections. No daemon address or MQTT broker is required.",
+        "title": "Enable Elgato USB Light Bridge"
+      }
+    }
+  }
+}

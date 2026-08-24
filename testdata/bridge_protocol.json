@@ -1,0 +1,113 @@
+{
+  "protocolVersion": 1,
+  "messages": {
+    "subscribe": {
+      "type": "elgatolight/subscribe",
+      "protocolVersion": 1,
+      "instanceId": "daemon-fixture",
+      "epoch": "epoch-fixture",
+      "sequence": 41,
+      "daemonVersion": "0.1.0",
+      "devices": [
+        {
+          "id": "SERIAL-FIXTURE",
+          "stableId": true,
+          "path": "/dev/hidraw-fixture",
+          "name": "Fixture light",
+          "manufacturer": "Elgato",
+          "model": "Key Light Neo",
+          "firmware": "1.0.4",
+          "available": true,
+          "state": {
+            "on": false,
+            "brightness": 20,
+            "temperature": 3003
+          },
+          "capabilities": {
+            "minBrightness": 0,
+            "maxBrightness": 40,
+            "minKelvin": 2900,
+            "maxKelvin": 7000
+          }
+        }
+      ]
+    },
+    "state": {
+      "type": "elgatolight/state",
+      "instanceId": "daemon-fixture",
+      "epoch": "epoch-fixture",
+      "sequence": 42,
+      "light": {
+        "id": "SERIAL-FIXTURE",
+        "stableId": true,
+        "path": "/dev/hidraw-fixture",
+        "name": "Fixture light",
+        "manufacturer": "Elgato",
+        "model": "Key Light Neo",
+        "firmware": "1.0.4",
+        "available": true,
+        "state": {
+          "on": true,
+          "brightness": 32,
+          "temperature": 4505
+        },
+        "capabilities": {
+          "minBrightness": 0,
+          "maxBrightness": 40,
+          "minKelvin": 2900,
+          "maxKelvin": 7000
+        }
+      }
+    },
+    "disconnect": {
+      "type": "elgatolight/device_disconnected",
+      "instanceId": "daemon-fixture",
+      "epoch": "epoch-fixture",
+      "sequence": 43,
+      "deviceId": "SERIAL-FIXTURE",
+      "error": "USB unplugged"
+    },
+    "command": {
+      "event": "command",
+      "requestId": "request-fixture",
+      "deviceId": "SERIAL-FIXTURE",
+      "update": {
+        "on": true,
+        "brightness": 32,
+        "temperature": 4500
+      }
+    },
+    "commandResult": {
+      "type": "elgatolight/command_result",
+      "instanceId": "daemon-fixture",
+      "epoch": "epoch-fixture",
+      "requestId": "request-fixture",
+      "success": true,
+      "light": {
+        "id": "SERIAL-FIXTURE",
+        "stableId": true,
+        "path": "/dev/hidraw-fixture",
+        "name": "Fixture light",
+        "manufacturer": "Elgato",
+        "model": "Key Light Neo",
+        "firmware": "1.0.4",
+        "available": true,
+        "state": {
+          "on": true,
+          "brightness": 32,
+          "temperature": 4505
+        },
+        "capabilities": {
+          "minBrightness": 0,
+          "maxBrightness": 40,
+          "minKelvin": 2900,
+          "maxKelvin": 7000
+        }
+      }
+    },
+    "resync": {
+      "event": "resync",
+      "reason": "expected sequence 42, got 43"
+    }
+  }
+}
