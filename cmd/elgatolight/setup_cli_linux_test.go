@@ -40,14 +40,13 @@ func TestNoninteractiveSetupFlagsResolveWithoutPrompts(t *testing.T) {
 	}
 	app.config.Set("home_assistant.url", "https://ha.example.test/base/")
 	command := app.setupCommand()
-	installDir := filepath.Join(account.HomeDir, "custom-bin")
 	resolved, err := app.resolveSetup(command, setupFlags{
-		scope: "user", targetUser: account.Username, installDir: installDir, assumeYes: true,
+		scope: "user", targetUser: account.Username, assumeYes: true,
 	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.homeAssistantURL != "https://ha.example.test/base" || resolved.installDir != installDir {
+	if resolved.homeAssistantURL != "https://ha.example.test/base" || !filepath.IsAbs(resolved.binaryPath) {
 		t.Fatalf("resolved = %#v", resolved)
 	}
 	wantCredentials := filepath.Join(account.HomeDir, ".local", "state", "elgatolight", "credentials.json")
@@ -64,7 +63,7 @@ func TestInteractiveSetupPromptsForEveryMissingChoice(t *testing.T) {
 	}
 	app := newTestCommandApp(t)
 	command := app.setupCommand()
-	command.SetIn(strings.NewReader("user\n" + account.Username + "\nhttps://ha.example.test\n\nyes\n"))
+	command.SetIn(strings.NewReader("user\n" + account.Username + "\nhttps://ha.example.test\nyes\n"))
 	var output bytes.Buffer
 	command.SetOut(&output)
 	resolved, err := app.resolveSetup(command, setupFlags{}, true)
@@ -74,26 +73,61 @@ func TestInteractiveSetupPromptsForEveryMissingChoice(t *testing.T) {
 	if resolved.scope != "user" || resolved.target.Name != account.Username {
 		t.Fatalf("resolved = %#v", resolved)
 	}
-	for _, prompt := range []string{"Setup scope", "Login user", "Home Assistant/proxy URL", "Binary installation directory", "Continue"} {
+	for _, prompt := range []string{
+		"user    Start the Home Assistant service when the selected user logs in.",
+		"system  Start the Home Assistant service when the computer boots.",
+		"none    Install USB permissions only and use the command-line interface.",
+		"Service option", "Login user", "Home Assistant/proxy URL", "Continue",
+	} {
 		if !strings.Contains(output.String(), prompt) {
 			t.Errorf("output omitted %q:\n%s", prompt, output.String())
 		}
 	}
 }
 
-func TestCLISetupDoesNotRequireHomeAssistant(t *testing.T) {
-	account, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestNoneSetupDoesNotRequireHomeAssistantOrUser(t *testing.T) {
 	app := newTestCommandApp(t)
 	resolved, err := app.resolveSetup(app.setupCommand(), setupFlags{
-		scope: "cli", targetUser: account.Username, assumeYes: true,
+		scope: "none", assumeYes: true,
 	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.homeAssistantURL != "" || resolved.credentialsPath != "" {
-		t.Fatalf("CLI setup unexpectedly resolved Home Assistant state: %#v", resolved)
+	if resolved.homeAssistantURL != "" || resolved.credentialsPath != "" || resolved.binaryPath != "" || resolved.target.Name != "" {
+		t.Fatalf("none setup unexpectedly resolved service state: %#v", resolved)
+	}
+}
+
+func TestLegacyCLIScopeIsRejected(t *testing.T) {
+	app := newTestCommandApp(t)
+	_, err := app.resolveSetup(app.setupCommand(), setupFlags{scope: "cli", assumeYes: true}, false)
+	if err == nil || !strings.Contains(err.Error(), "expected user, system, or none") {
+		t.Fatalf("legacy CLI scope error = %v", err)
+	}
+}
+
+func TestSetupHelpExplainsAllServiceOptions(t *testing.T) {
+	app := newTestCommandApp(t)
+	command, _, err := app.root.Find([]string{"setup"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := command.Help(); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	for _, text := range []string{
+		"user    Start the Home Assistant service when the selected user logs in.",
+		"system  Start the Home Assistant service when the computer boots.",
+		"none    Install USB permissions only and use the command-line interface.",
+	} {
+		if !strings.Contains(help, text) {
+			t.Fatalf("setup help omitted %q:\n%s", text, help)
+		}
+	}
+	if strings.Contains(help, "--install-dir") {
+		t.Fatalf("setup help still exposes binary installation:\n%s", help)
 	}
 }

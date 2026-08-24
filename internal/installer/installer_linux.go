@@ -1,14 +1,12 @@
 //go:build linux
 
-// Package installer installs the release binary, USB rule, and systemd unit.
+// Package installer configures the USB rule and optional systemd unit.
 package installer
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,7 +19,7 @@ import (
 type Scope string
 
 const (
-	ScopeCLI    Scope = "cli"
+	ScopeNone   Scope = "none"
 	ScopeUser   Scope = "user"
 	ScopeSystem Scope = "system"
 )
@@ -45,21 +43,18 @@ type CommandRunner func(name string, args ...string) error
 type Config struct {
 	Scope            Scope
 	Target           TargetUser
-	InstallDir       string
+	BinaryPath       string
 	HomeAssistantURL string
 	CredentialsPath  string
-	SourceExecutable string
 	RootDir          string
 	Run              CommandRunner
 	Warnf            func(string, ...any)
 }
 
 type Result struct {
-	BinaryPath    string
-	UnitPath      string
-	RuleChanged   bool
-	BinaryChanged bool
-	UnitChanged   bool
+	UnitPath    string
+	RuleChanged bool
+	UnitChanged bool
 }
 
 type unitValues struct {
@@ -79,18 +74,6 @@ func Apply(config Config) (Result, error) {
 		config.Warnf = func(string, ...any) {}
 	}
 
-	ownerUID, ownerGID := config.Target.UID, config.Target.GID
-	if config.Scope == ScopeSystem {
-		ownerUID, ownerGID = 0, 0
-	} else if err := prepareUserDirectory(config.InstallDir, config.Target, 0o755); err != nil {
-		return Result{}, err
-	}
-	binaryPath := filepath.Join(config.InstallDir, "elgatolight")
-	binaryChanged, err := installExecutable(config.SourceExecutable, binaryPath, ownerUID, ownerGID)
-	if err != nil {
-		return Result{}, fmt.Errorf("install executable: %w", err)
-	}
-
 	rulePath := rooted(config.RootDir, "/etc/udev/rules.d/99-elgato-key-light-neo.rules")
 	ruleChanged, err := writeManagedFile(rulePath, []byte(packaging.UdevRule), 0o644, 0, 0, true)
 	if err != nil {
@@ -101,11 +84,11 @@ func Apply(config Config) (Result, error) {
 			return Result{}, fmt.Errorf("reload udev rules: %w", err)
 		}
 	}
-	if config.Scope == ScopeCLI {
-		return Result{BinaryPath: binaryPath, RuleChanged: ruleChanged, BinaryChanged: binaryChanged}, nil
+	if config.Scope == ScopeNone {
+		return Result{RuleChanged: ruleChanged}, nil
 	}
 
-	unit, unitPath, err := renderUnit(config, binaryPath)
+	unit, unitPath, err := renderUnit(config, config.BinaryPath)
 	if err != nil {
 		return Result{}, err
 	}
@@ -148,7 +131,7 @@ func Apply(config Config) (Result, error) {
 		}
 	}
 
-	return Result{BinaryPath: binaryPath, UnitPath: unitPath, RuleChanged: ruleChanged, BinaryChanged: binaryChanged, UnitChanged: unitChanged}, nil
+	return Result{UnitPath: unitPath, RuleChanged: ruleChanged, UnitChanged: unitChanged}, nil
 }
 
 func EnsureCredentialOwnership(path string, target TargetUser) error {
@@ -216,17 +199,15 @@ func prepareUserDirectory(path string, target TargetUser, leafMode os.FileMode) 
 }
 
 func validate(config Config) error {
-	if config.Scope != ScopeCLI && config.Scope != ScopeUser && config.Scope != ScopeSystem {
-		return fmt.Errorf("invalid setup scope %q (expected cli, user, or system)", config.Scope)
+	if config.Scope != ScopeNone && config.Scope != ScopeUser && config.Scope != ScopeSystem {
+		return fmt.Errorf("invalid setup scope %q (expected user, system, or none)", config.Scope)
 	}
-	if config.Target.Name == "" || config.Target.Home == "" || config.Target.UID < 0 || config.Target.GID < 0 {
+	if config.Scope != ScopeNone && (config.Target.Name == "" || config.Target.Home == "" || config.Target.UID < 0 || config.Target.GID < 0) {
 		return errors.New("target user is incomplete")
 	}
-	paths := map[string]string{
-		"install directory": config.InstallDir,
-		"source executable": config.SourceExecutable,
-	}
-	if config.Scope != ScopeCLI {
+	paths := map[string]string{}
+	if config.Scope != ScopeNone {
+		paths["binary path"] = config.BinaryPath
 		paths["credential path"] = config.CredentialsPath
 	}
 	for name, value := range paths {
@@ -237,21 +218,17 @@ func validate(config Config) error {
 			return fmt.Errorf("%s contains invalid characters", name)
 		}
 	}
-	if config.Scope != ScopeCLI && (config.HomeAssistantURL == "" || strings.ContainsAny(config.HomeAssistantURL, "\n\r\x00")) {
+	if config.Scope != ScopeNone && (config.HomeAssistantURL == "" || strings.ContainsAny(config.HomeAssistantURL, "\n\r\x00")) {
 		return errors.New("Home Assistant URL is required")
 	}
-	if config.Scope == ScopeSystem {
-		relative, err := filepath.Rel(config.Target.Home, config.InstallDir)
-		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return errors.New("a system service cannot execute a user-home binary; use /usr/local/bin or another root-owned directory")
+	if config.Scope != ScopeNone {
+		info, err := os.Stat(config.BinaryPath)
+		if err != nil {
+			return fmt.Errorf("inspect installed executable: %w", err)
 		}
-	}
-	info, err := os.Stat(config.SourceExecutable)
-	if err != nil {
-		return fmt.Errorf("inspect current executable: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("current executable is not a regular file")
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return errors.New("installed executable must be a regular executable file")
+		}
 	}
 	return nil
 }
@@ -291,78 +268,6 @@ func rooted(root, path string) string {
 		return path
 	}
 	return filepath.Join(root, strings.TrimPrefix(filepath.Clean(path), string(filepath.Separator)))
-}
-
-func installExecutable(source, destination string, uid, gid int) (bool, error) {
-	same, err := filesEqual(source, destination)
-	if err != nil {
-		return false, err
-	}
-	if same {
-		if err := os.Chmod(destination, 0o755); err != nil {
-			return false, err
-		}
-		return false, changeOwner(destination, uid, gid)
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return false, err
-	}
-	if err := changeOwner(filepath.Dir(destination), uid, gid); err != nil {
-		return false, err
-	}
-	input, err := os.Open(source)
-	if err != nil {
-		return false, err
-	}
-	defer input.Close()
-	temporary, err := os.CreateTemp(filepath.Dir(destination), ".elgatolight-*")
-	if err != nil {
-		return false, err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err := io.Copy(temporary, input); err != nil {
-		temporary.Close()
-		return false, err
-	}
-	if err := temporary.Chmod(0o755); err != nil {
-		temporary.Close()
-		return false, err
-	}
-	if err := changeOwner(temporaryPath, uid, gid); err != nil {
-		temporary.Close()
-		return false, err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return false, err
-	}
-	if err := temporary.Close(); err != nil {
-		return false, err
-	}
-	return true, os.Rename(temporaryPath, destination)
-}
-
-func filesEqual(left, right string) (bool, error) {
-	rightInfo, err := os.Lstat(right)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !rightInfo.Mode().IsRegular() {
-		return false, fmt.Errorf("destination exists and is not a regular file: %s", right)
-	}
-	leftData, err := os.ReadFile(left)
-	if err != nil {
-		return false, err
-	}
-	rightData, err := os.ReadFile(right)
-	if err != nil {
-		return false, err
-	}
-	return sha256.Sum256(leftData) == sha256.Sum256(rightData), nil
 }
 
 func writeManagedFile(path string, content []byte, mode os.FileMode, uid, gid int, allowLegacy bool) (bool, error) {

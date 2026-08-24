@@ -23,7 +23,6 @@ import (
 
 type setupFlags struct {
 	scope      string
-	installDir string
 	targetUser string
 	assumeYes  bool
 }
@@ -31,16 +30,22 @@ type setupFlags struct {
 type resolvedSetup struct {
 	scope            installer.Scope
 	target           installer.TargetUser
-	installDir       string
+	binaryPath       string
 	homeAssistantURL string
 	credentialsPath  string
 }
+
+const setupScopeHelp = `Service options:
+  user    Start the Home Assistant service when the selected user logs in.
+  system  Start the Home Assistant service when the computer boots.
+  none    Install USB permissions only and use the command-line interface.`
 
 func (app *commandApp) setupCommand() *cobra.Command {
 	flags := setupFlags{}
 	command := &cobra.Command{
 		Use:   "setup",
-		Short: "Install the command, USB access, and optionally a daemon service",
+		Short: "Configure USB access and optionally a daemon service",
+		Long:  "Configure USB access and optionally a daemon service.\n\n" + setupScopeHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if os.Geteuid() != 0 {
@@ -50,17 +55,10 @@ func (app *commandApp) setupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if resolved.scope != installer.ScopeCLI {
+			if resolved.scope != installer.ScopeNone {
 				if err := app.ensureSetupPairing(command, resolved); err != nil {
 					return err
 				}
-			}
-			executable, err := os.Executable()
-			if err != nil {
-				return fmt.Errorf("locate current executable: %w", err)
-			}
-			if resolvedPath, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
-				executable = resolvedPath
 			}
 			runner := func(name string, args ...string) error {
 				child := exec.Command(name, args...)
@@ -69,9 +67,9 @@ func (app *commandApp) setupCommand() *cobra.Command {
 				return child.Run()
 			}
 			result, err := installer.Apply(installer.Config{
-				Scope: resolved.scope, Target: resolved.target, InstallDir: resolved.installDir,
+				Scope: resolved.scope, Target: resolved.target, BinaryPath: resolved.binaryPath,
 				HomeAssistantURL: resolved.homeAssistantURL, CredentialsPath: resolved.credentialsPath,
-				SourceExecutable: executable, Run: runner,
+				Run: runner,
 				Warnf: func(format string, values ...any) {
 					fmt.Fprintf(command.ErrOrStderr(), "warning: "+format+"\n", values...)
 				},
@@ -79,19 +77,17 @@ func (app *commandApp) setupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(command.OutOrStdout(), "Installed elgatolight at %s.\n", result.BinaryPath)
 			if result.UnitPath == "" {
-				fmt.Fprintln(command.OutOrStdout(), "CLI-only setup selected; no daemon service was installed.")
+				fmt.Fprintln(command.OutOrStdout(), "CLI-only setup selected; no daemon service was configured.")
 			} else {
-				fmt.Fprintf(command.OutOrStdout(), "Installed %s systemd service at %s.\n", resolved.scope, result.UnitPath)
+				fmt.Fprintf(command.OutOrStdout(), "Configured %s systemd service at %s.\n", resolved.scope, result.UnitPath)
 			}
 			fmt.Fprintln(command.OutOrStdout(), "USB permissions are installed; unplug and reconnect the light once.")
 			return nil
 		},
 	}
-	command.Flags().StringVar(&flags.scope, "scope", "", "setup scope: cli, user, or system")
-	command.Flags().StringVar(&flags.installDir, "install-dir", "", "binary installation directory")
-	command.Flags().StringVar(&flags.targetUser, "target-user", "", "login user for cli/user installation (default: SUDO_USER)")
+	command.Flags().StringVar(&flags.scope, "scope", "", "service option: user, system, or none")
+	command.Flags().StringVar(&flags.targetUser, "target-user", "", "login user for the user service (default: SUDO_USER)")
 	command.Flags().BoolVarP(&flags.assumeYes, "yes", "y", false, "apply setup without the final confirmation prompt")
 	return command
 }
@@ -102,26 +98,27 @@ func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, in
 	var err error
 	if scopeValue == "" {
 		if !interactive {
-			return resolvedSetup{}, errors.New("--scope is required when setup is not interactive (cli, user, or system)")
+			return resolvedSetup{}, errors.New("--scope is required when setup is not interactive (user, system, or none)")
 		}
-		scopeValue, err = promptRequired(reader, command.OutOrStdout(), "Setup scope (cli/user/system)")
+		fmt.Fprintln(command.OutOrStdout(), setupScopeHelp)
+		scopeValue, err = promptRequired(reader, command.OutOrStdout(), "Service option (user/system/none)")
 		if err != nil {
 			return resolvedSetup{}, err
 		}
 	}
 	scope := installer.Scope(strings.ToLower(scopeValue))
-	if scope != installer.ScopeCLI && scope != installer.ScopeUser && scope != installer.ScopeSystem {
-		return resolvedSetup{}, fmt.Errorf("invalid --scope %q (expected cli, user, or system)", scopeValue)
+	if scope != installer.ScopeNone && scope != installer.ScopeUser && scope != installer.ScopeSystem {
+		return resolvedSetup{}, fmt.Errorf("invalid --scope %q (expected user, system, or none)", scopeValue)
 	}
 
 	targetName := strings.TrimSpace(flags.targetUser)
 	if scope == installer.ScopeSystem {
 		targetName = "root"
-	} else if targetName == "" {
+	} else if scope == installer.ScopeUser && targetName == "" {
 		targetName = strings.TrimSpace(os.Getenv("SUDO_USER"))
 		if targetName == "" || targetName == "root" {
 			if !interactive {
-				return resolvedSetup{}, errors.New("--target-user is required for cli or user scope when SUDO_USER is unavailable")
+				return resolvedSetup{}, errors.New("--target-user is required for user scope when SUDO_USER is unavailable")
 			}
 			targetName, err = promptRequired(reader, command.OutOrStdout(), "Login user for the service")
 			if err != nil {
@@ -129,13 +126,16 @@ func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, in
 			}
 		}
 	}
-	target, err := lookupTargetUser(targetName)
-	if err != nil {
-		return resolvedSetup{}, err
+	target := installer.TargetUser{}
+	if scope != installer.ScopeNone {
+		target, err = lookupTargetUser(targetName)
+		if err != nil {
+			return resolvedSetup{}, err
+		}
 	}
 
 	normalizedURLString := ""
-	if scope != installer.ScopeCLI {
+	if scope != installer.ScopeNone {
 		rawURL := strings.TrimSpace(app.config.GetString("home_assistant.url"))
 		if rawURL == "" {
 			if !interactive {
@@ -153,23 +153,15 @@ func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, in
 		normalizedURLString = normalizedURL.String()
 	}
 
-	defaultInstallDir := filepath.Join(target.Home, ".local", "bin")
-	if scope == installer.ScopeSystem {
-		defaultInstallDir = "/usr/local/bin"
-	}
-	installDir := strings.TrimSpace(flags.installDir)
-	if installDir == "" && interactive {
-		installDir, err = promptDefault(reader, command.OutOrStdout(), "Binary installation directory", defaultInstallDir)
+	binaryPath := ""
+	if scope != installer.ScopeNone {
+		binaryPath, err = os.Executable()
 		if err != nil {
-			return resolvedSetup{}, err
+			return resolvedSetup{}, fmt.Errorf("locate installed executable: %w", err)
 		}
-	}
-	if installDir == "" {
-		installDir = defaultInstallDir
-	}
-	installDir = expandTargetHome(installDir, target.Home)
-	if !filepath.IsAbs(installDir) {
-		return resolvedSetup{}, fmt.Errorf("--install-dir must be absolute: %s", installDir)
+		if resolvedPath, resolveErr := filepath.EvalSymlinks(binaryPath); resolveErr == nil {
+			binaryPath = resolvedPath
+		}
 	}
 
 	credentialsPath := ""
@@ -181,7 +173,7 @@ func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, in
 	if app.config.InConfig("home_assistant.credentials") {
 		credentialExplicit = true
 	}
-	if scope == installer.ScopeCLI {
+	if scope == installer.ScopeNone {
 		credentialsPath = ""
 	} else if credentialExplicit {
 		credentialsPath = expandTargetHome(app.config.GetString("home_assistant.credentials"), target.Home)
@@ -190,23 +182,22 @@ func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, in
 	} else {
 		credentialsPath = filepath.Join(target.Home, ".local", "state", "elgatolight", "credentials.json")
 	}
-	if scope != installer.ScopeCLI && !filepath.IsAbs(credentialsPath) {
+	if scope != installer.ScopeNone && !filepath.IsAbs(credentialsPath) {
 		return resolvedSetup{}, fmt.Errorf("--credentials must be absolute: %s", credentialsPath)
 	}
 
 	resolved := resolvedSetup{
-		scope: scope, target: target, installDir: filepath.Clean(installDir),
+		scope: scope, target: target, binaryPath: binaryPath,
 		homeAssistantURL: normalizedURLString, credentialsPath: credentialsPath,
 	}
 	if !flags.assumeYes {
 		if !interactive {
 			return resolvedSetup{}, errors.New("--yes is required when setup is not interactive")
 		}
-		fmt.Fprintf(command.OutOrStdout(), "\nInstall for %s scope\n  user: %s\n  binary: %s\n",
-			resolved.scope, resolved.target.Name, filepath.Join(resolved.installDir, "elgatolight"))
-		if resolved.scope != installer.ScopeCLI {
-			fmt.Fprintf(command.OutOrStdout(), "  Home Assistant: %s\n  credentials: %s\n",
-				resolved.homeAssistantURL, resolved.credentialsPath)
+		fmt.Fprintf(command.OutOrStdout(), "\nConfigure %s service option\n", resolved.scope)
+		if resolved.scope != installer.ScopeNone {
+			fmt.Fprintf(command.OutOrStdout(), "  user: %s\n  binary: %s\n  Home Assistant: %s\n  credentials: %s\n",
+				resolved.target.Name, resolved.binaryPath, resolved.homeAssistantURL, resolved.credentialsPath)
 		}
 		confirmed, confirmErr := promptYesNo(reader, command.OutOrStdout(), "Continue", false)
 		if confirmErr != nil {
@@ -291,19 +282,6 @@ func promptRequired(reader *bufio.Reader, output io.Writer, label string) (strin
 			return "", fmt.Errorf("%s is required", label)
 		}
 	}
-}
-
-func promptDefault(reader *bufio.Reader, output io.Writer, label, defaultValue string) (string, error) {
-	fmt.Fprintf(output, "%s [%s]: ", label, defaultValue)
-	value, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return defaultValue, nil
-	}
-	return value, nil
 }
 
 func promptYesNo(reader *bufio.Reader, output io.Writer, label string, defaultValue bool) (bool, error) {

@@ -27,7 +27,8 @@ ordinary light state, so the CLI monitor and Home Assistant both see it.
 Download the Linux archive for your CPU from the
 [latest release](https://git2.riper.fr/ztec/elgatocmd/releases/latest). The
 release binary embeds its device-specific udev rule and systemd templates.
-Setup installs the binary and grants the selected user access to the USB light:
+The download installer installs the binary. Setup then configures USB access
+and an optional service:
 
 ```sh
 sudo ./elgatolight setup
@@ -44,21 +45,20 @@ Set `ELGATOLIGHT_INSTALL_DIR` to choose the directory without a prompt. Set
 `ELGATOLIGHT_RELEASE_API` to use another compatible Forgejo release API.
 
 Setup must run as root because it writes the udev rule and may create a system
-unit. When invoked through `sudo`, it detects `SUDO_USER` and defaults to that
-login user's `~/.local/bin`. It asks for one of three scopes:
+unit. It asks for one of three service options:
 
-- `cli` installs the binary and USB rule only.
-- `user` additionally pairs with Home Assistant and enables a user systemd
-  service under `~/.config/systemd/user`; it starts at login.
-- `system` pairs with Home Assistant, installs under `/usr/local/bin` by
-  default, and enables a system service that starts at boot.
+- `user` pairs with Home Assistant and enables a user systemd service under
+  `~/.config/systemd/user`; it starts when that user logs in.
+- `system` pairs with Home Assistant and enables a system service that starts
+  when the computer boots.
+- `none` installs the USB rule only for command-line use.
 
-The system scope uses a root-owned executable directory such as
-`/usr/local/bin`. All installed files carry a managed marker. Setup recognizes
-and atomically upgrades its managed files, keeps an existing matching OAuth
-authorization, reloads udev when its rule changes, and safely restarts the
-selected service. Destination validation protects existing administrator-owned
-units, rules, and links.
+User and system services execute the binary that invoked setup. Install the
+binary in a durable path; `/usr/local/bin` is the recommended location for a
+system service. Setup keeps an existing matching OAuth authorization, reloads
+udev when its managed rule changes, and safely refreshes the selected service.
+Destination validation protects existing administrator-owned units, rules,
+and links.
 
 Every interactive choice has a flag equivalent:
 
@@ -67,14 +67,13 @@ sudo ./elgatolight setup \
   --scope user \
   --target-user alice \
   --ha-url https://homeassistant.example.test \
-  --install-dir /home/alice/.local/bin \
   --credentials /home/alice/.local/state/elgatolight/credentials.json \
   --yes
 ```
 
-Noninteractive setup requires `--scope` and `--yes`. User/CLI scope also
-requires `--target-user` when setup needs an explicit login identity, and both
-service scopes require `--ha-url`. The existing persistent flags
+Noninteractive setup requires `--scope` and `--yes`. User scope also requires
+`--target-user` when `SUDO_USER` is unavailable, and both service scopes require
+`--ha-url`. The existing persistent flags
 `--oauth-callback` and `--insecure-skip-tls-verify` also apply to OAuth during
 setup. Run `elgatolight setup --help` for the generated reference.
 
@@ -234,8 +233,9 @@ sudo ./elgatolight setup
 
 Choose `user` or `system` and enter the externally reachable Home Assistant URL.
 Setup completes OAuth pairing, installs the service, enables it for login or
-boot, and starts it immediately. Running the same command from a newer release
-upgrades the binary, preserves configuration, and restarts the service.
+boot, and starts it immediately. To upgrade, run the download installer again,
+then rerun setup to preserve configuration and restart the service with the new
+binary.
 
 For a foreground or manually supervised daemon, the first start supplies the
 Home Assistant URL:
@@ -303,8 +303,9 @@ marks it unavailable.
 To upgrade the Home Assistant side, download the update in HACS and restart
 Home Assistant. For manual installations, update the clone and copy the custom
 component into the persistent configuration volume again before restarting.
-To upgrade the daemon, extract the new release and rerun its `elgatolight setup`
-as root; matching credentials are preserved and the service is restarted.
+To upgrade the daemon, run the download installer again and rerun
+`elgatolight setup` as root; matching credentials are preserved and the service
+is restarted.
 
 The credential file supports moving the daemon while keeping the same Home
 Assistant address. Treat it as a secret and preserve mode `0600` when copying

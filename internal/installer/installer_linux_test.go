@@ -37,13 +37,14 @@ func TestUserInstallIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var commands []string
+	binary := testSource(t)
 	config := Config{
 		Scope:            ScopeUser,
 		Target:           TargetUser{Name: "alice", Home: home, UID: 1000, GID: 1000},
-		InstallDir:       filepath.Join(home, ".local", "bin"),
+		BinaryPath:       binary,
 		HomeAssistantURL: "https://ha.example.test",
 		CredentialsPath:  filepath.Join(home, ".local", "state", "elgatolight", "credentials.json"),
-		SourceExecutable: testSource(t), RootDir: root,
+		RootDir:          root,
 		Run: func(name string, args ...string) error {
 			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
 			return nil
@@ -53,21 +54,21 @@ func TestUserInstallIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.BinaryChanged || !first.RuleChanged || !first.UnitChanged {
+	if !first.RuleChanged || !first.UnitChanged {
 		t.Fatalf("first result = %#v", first)
 	}
 	second, err := Apply(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.BinaryChanged || second.RuleChanged || second.UnitChanged {
+	if second.RuleChanged || second.UnitChanged {
 		t.Fatalf("second result = %#v", second)
 	}
 	unit, err := os.ReadFile(first.UnitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(unit), `ExecStart="`+first.BinaryPath+`" daemon`) {
+	if !strings.Contains(string(unit), `ExecStart="`+binary+`" daemon`) {
 		t.Fatalf("unit does not reference installed binary:\n%s", unit)
 	}
 	link := filepath.Join(filepath.Dir(first.UnitPath), "default.target.wants", "elgatolight.service")
@@ -79,7 +80,7 @@ func TestUserInstallIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestCLIInstallSkipsHomeAssistantAndSystemd(t *testing.T) {
+func TestNoneSetupOnlyInstallsUSBRule(t *testing.T) {
 	withoutChown(t)
 	root := t.TempDir()
 	home := filepath.Join(root, "home", "alice")
@@ -88,8 +89,7 @@ func TestCLIInstallSkipsHomeAssistantAndSystemd(t *testing.T) {
 	}
 	var commands []string
 	result, err := Apply(Config{
-		Scope: ScopeCLI, Target: TargetUser{Name: "alice", Home: home, UID: 1000, GID: 1000},
-		InstallDir: filepath.Join(home, ".local", "bin"), SourceExecutable: testSource(t), RootDir: root,
+		Scope: ScopeNone, RootDir: root,
 		Run: func(name string, args ...string) error {
 			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
 			return nil
@@ -98,7 +98,7 @@ func TestCLIInstallSkipsHomeAssistantAndSystemd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.UnitPath != "" || result.BinaryPath == "" {
+	if result.UnitPath != "" {
 		t.Fatalf("result = %#v", result)
 	}
 	if fmt.Sprint(commands) != fmt.Sprint([]string{"udevadm control --reload-rules"}) {
@@ -113,10 +113,10 @@ func TestSystemInstallUsesSystemdAndRootedFiles(t *testing.T) {
 	config := Config{
 		Scope:            ScopeSystem,
 		Target:           TargetUser{Name: "root", Home: filepath.Join(root, "root"), UID: 0, GID: 0},
-		InstallDir:       filepath.Join(root, "usr", "local", "bin"),
+		BinaryPath:       testSource(t),
 		HomeAssistantURL: "https://ha.example.test/base",
 		CredentialsPath:  filepath.Join(root, "var", "lib", "elgatolight", "credentials.json"),
-		SourceExecutable: testSource(t), RootDir: root,
+		RootDir:          root,
 		Run: func(name string, args ...string) error {
 			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
 			return nil
