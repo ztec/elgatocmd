@@ -1,5 +1,7 @@
 # Elgato Key Light Neo USB controller
 
+<img src="docs/Key_Light_Neo_White_Desk.png" alt="White Elgato Key Light Neo" align="right" width="128">
+
 `elgatolight` controls one or more Elgato Key Light Neo devices directly over
 USB. It supports power, brightness, color temperature, stored presets, physical
 control updates, and stable device IDs.
@@ -72,6 +74,11 @@ a system-owned directory, then restart any running daemon service.
 The included Home Assistant integration receives live light state from the
 daemon and sends light commands back through the same connection. Setup needs
 the Home Assistant URL.
+
+<table>
+  <tr><td width="50%"><img src="docs/Elgato%20bridge.png" alt="Elgato USB Light Bridge device page in Home Assistant" width="100%"></td><td width="50%"><img src="docs/Elgato%20light%20control.png" alt="Elgato Key Light controls while switched off in Home Assistant" width="100%"><br><img src="docs/Elgato%20light%20control-2.png" alt="Elgato Key Light controls while switched on at 65 percent in Home Assistant" width="100%"></td></tr>
+  <tr><td valign="top"><strong>Bridge overview.</strong> Home Assistant groups every detected USB light under the Elgato USB Light Bridge.</td><td valign="top"><strong>Light control.</strong> The standard panel controls power, brightness, and color temperature; these views show the light switched off with its activity history and switched on at 65%.</td></tr>
+</table>
 
 First install the integration:
 
