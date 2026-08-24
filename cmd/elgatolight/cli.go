@@ -94,6 +94,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 		app.authCommand(),
 		app.daemonCommand(),
 		app.setupCommand(),
+		app.setupUSBCommand(),
 	)
 	root.InitDefaultCompletionCmd()
 	return app, nil

@@ -32,7 +32,6 @@ machine=${ELGATOLIGHT_ARCH:-$(uname -m)}
 case $os_name in
 	Linux) os=linux ;;
 	Darwin) os=darwin ;;
-	MINGW* | MSYS* | CYGWIN*) os=windows ;;
 	*) fail "unsupported operating system: $os_name" ;;
 esac
 
@@ -47,13 +46,8 @@ case $machine in
 esac
 
 target=$os-$arch
-if [ "$os" = windows ]; then
-	archive_extension=zip
-	binary_name=elgatolight.exe
-else
-	archive_extension=tar.gz
-	binary_name=elgatolight
-fi
+archive_extension=tar.gz
+binary_name=elgatolight
 
 if [ "$(id -u 2>/dev/null || printf 1)" = 0 ]; then
 	default_install_dir=/usr/local/bin
@@ -127,12 +121,7 @@ fi
 
 unpack_dir=$tmp_dir/unpack
 mkdir -p "$unpack_dir"
-if [ "$archive_extension" = zip ]; then
-	command -v unzip >/dev/null 2>&1 || fail 'unzip is required to install the Windows archive'
-	unzip -q "$archive" -d "$unpack_dir"
-else
-	tar -xzf "$archive" -C "$unpack_dir"
-fi
+tar -xzf "$archive" -C "$unpack_dir"
 
 binary=$(find "$unpack_dir" -type f -name "$binary_name" -print | sed -n '1p')
 [ -n "$binary" ] || fail "the archive does not contain $binary_name"
@@ -148,4 +137,10 @@ fi
 
 version=$($destination --version 2>/dev/null || printf unknown)
 printf 'Installed elgatolight %s at %s\n' "$version" "$destination"
-printf 'Next, run: sudo %s setup\n' "$destination"
+printf '\nConfigure it with one of these commands:\n'
+printf '  %s setup\n' "$destination"
+printf '    User service: starts when you log in. Only the USB rule uses sudo.\n'
+printf '  sudo %s setup\n' "$destination"
+printf '    System service: starts at boot and runs as root.\n'
+printf '  %s setup --scope none\n' "$destination"
+printf '    Command-line only: installs USB access without a daemon service.\n'

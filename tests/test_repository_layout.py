@@ -96,3 +96,29 @@ def test_distrobox_and_automation_share_the_dockerfile_image() -> None:
     assert '--volume "$(CURDIR):/workspace:Z"' not in makefile
     assert 'cp "$$container_id:/tmp/elgatolight-release/."' in makefile
     assert "setup:" not in makefile
+
+
+def test_release_targets_only_publish_supported_distribution_formats() -> None:
+    release_script = (ROOT / "scripts/build-release.sh").read_text(encoding="utf-8")
+    installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "build_target linux amd64" in release_script
+    assert "build_target linux arm64" in release_script
+    assert "build_target linux arm 7" in release_script
+    assert "build_target darwin amd64" in release_script
+    assert "build_target darwin arm64" in release_script
+    assert "build_target windows" not in release_script
+    assert "MINGW" not in installer
+    assert "windows" not in installer.lower()
+
+
+def test_installer_explains_privilege_aware_setup_modes() -> None:
+    installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    technical = (ROOT / "docs/technical.md").read_text(encoding="utf-8")
+    assert "User service: starts when you log in. Only the USB rule uses sudo." in installer
+    assert "System service: starts at boot and runs as root." in installer
+    assert "setup --scope none" in installer
+    assert "`elgatolight setup`: user service" in readme
+    assert "`sudo elgatolight setup`: system service" in readme
+    assert "--target-user" not in readme
+    assert "--target-user" not in technical

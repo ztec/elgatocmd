@@ -22,9 +22,8 @@ import (
 )
 
 type setupFlags struct {
-	scope      string
-	targetUser string
-	assumeYes  bool
+	scope     string
+	assumeYes bool
 }
 
 type resolvedSetup struct {
@@ -36,8 +35,8 @@ type resolvedSetup struct {
 }
 
 const setupScopeHelp = `Service options:
-  user    Start the Home Assistant service when the selected user logs in.
-  system  Start the Home Assistant service when the computer boots.
+  user    Run without sudo; start Home Assistant when the current user logs in.
+  system  Run with sudo; start the Home Assistant service when the computer boots.
   none    Install USB permissions only and use the command-line interface.`
 
 func (app *commandApp) setupCommand() *cobra.Command {
@@ -48,28 +47,28 @@ func (app *commandApp) setupCommand() *cobra.Command {
 		Long:  "Configure USB access and optionally a daemon service.\n\n" + setupScopeHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if os.Geteuid() != 0 {
-				return errors.New("setup needs root access; run sudo elgatolight setup")
-			}
-			resolved, err := app.resolveSetup(command, flags, stdinIsTerminal())
+			effectiveUID := os.Geteuid()
+			resolved, err := app.resolveSetup(command, flags, stdinIsTerminal(), effectiveUID)
 			if err != nil {
 				return err
+			}
+			skipUSBRule := false
+			if effectiveUID != 0 {
+				if err := elevateUSBSetup(command); err != nil {
+					return err
+				}
+				skipUSBRule = true
 			}
 			if resolved.scope != installer.ScopeNone {
 				if err := app.ensureSetupPairing(command, resolved); err != nil {
 					return err
 				}
 			}
-			runner := func(name string, args ...string) error {
-				child := exec.Command(name, args...)
-				child.Stdout = command.OutOrStdout()
-				child.Stderr = command.ErrOrStderr()
-				return child.Run()
-			}
 			result, err := installer.Apply(installer.Config{
 				Scope: resolved.scope, Target: resolved.target, BinaryPath: resolved.binaryPath,
 				HomeAssistantURL: resolved.homeAssistantURL, CredentialsPath: resolved.credentialsPath,
-				Run: runner,
+				SkipUSBRule: skipUSBRule,
+				Run:         setupCommandRunner(command),
 				Warnf: func(format string, values ...any) {
 					fmt.Fprintf(command.ErrOrStderr(), "warning: "+format+"\n", values...)
 				},
@@ -87,44 +86,89 @@ func (app *commandApp) setupCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&flags.scope, "scope", "", "service option: user, system, or none")
-	command.Flags().StringVar(&flags.targetUser, "target-user", "", "login user for the user service (default: SUDO_USER)")
 	command.Flags().BoolVarP(&flags.assumeYes, "yes", "y", false, "apply setup without the final confirmation prompt")
 	return command
 }
 
-func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, interactive bool) (resolvedSetup, error) {
+func (app *commandApp) setupUSBCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    "setup-usb",
+		Short:  "Install USB permissions",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if os.Geteuid() != 0 {
+				return errors.New("USB permission installation needs root access")
+			}
+			_, err := installer.Apply(installer.Config{
+				Scope: installer.ScopeNone,
+				Run:   setupCommandRunner(command),
+			})
+			return err
+		},
+	}
+}
+
+func setupCommandRunner(command *cobra.Command) installer.CommandRunner {
+	return func(name string, args ...string) error {
+		child := exec.Command(name, args...)
+		child.Stdin = command.InOrStdin()
+		child.Stdout = command.OutOrStdout()
+		child.Stderr = command.ErrOrStderr()
+		return child.Run()
+	}
+}
+
+func elevateUSBSetup(command *cobra.Command) error {
+	binaryPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate installed executable for USB setup: %w", err)
+	}
+	if resolvedPath, resolveErr := filepath.EvalSymlinks(binaryPath); resolveErr == nil {
+		binaryPath = resolvedPath
+	}
+	fmt.Fprintln(command.OutOrStdout(), "Installing USB permissions; sudo may ask for your password.")
+	if err := setupCommandRunner(command)("sudo", "--", binaryPath, "setup-usb"); err != nil {
+		return fmt.Errorf("install USB permissions with sudo: %w", err)
+	}
+	return nil
+}
+
+func (app *commandApp) resolveSetup(command *cobra.Command, flags setupFlags, interactive bool, effectiveUID int) (resolvedSetup, error) {
 	reader := bufio.NewReader(command.InOrStdin())
 	scopeValue := strings.TrimSpace(flags.scope)
-	var err error
 	if scopeValue == "" {
-		if !interactive {
-			return resolvedSetup{}, errors.New("--scope is required when setup is not interactive (user, system, or none)")
+		if effectiveUID == 0 {
+			scopeValue = string(installer.ScopeSystem)
+		} else {
+			scopeValue = string(installer.ScopeUser)
 		}
+	}
+	if interactive && strings.TrimSpace(flags.scope) == "" {
 		fmt.Fprintln(command.OutOrStdout(), setupScopeHelp)
-		scopeValue, err = promptRequired(reader, command.OutOrStdout(), "Service option (user/system/none)")
-		if err != nil {
-			return resolvedSetup{}, err
-		}
+		fmt.Fprintf(command.OutOrStdout(), "\nDetected %s setup from the current privileges.\n", scopeValue)
 	}
 	scope := installer.Scope(strings.ToLower(scopeValue))
 	if scope != installer.ScopeNone && scope != installer.ScopeUser && scope != installer.ScopeSystem {
 		return resolvedSetup{}, fmt.Errorf("invalid --scope %q (expected user, system, or none)", scopeValue)
 	}
+	if scope == installer.ScopeUser && effectiveUID == 0 {
+		return resolvedSetup{}, errors.New("user service setup must run without sudo; rerun elgatolight setup as the login user")
+	}
+	if scope == installer.ScopeSystem && effectiveUID != 0 {
+		return resolvedSetup{}, errors.New("system service setup needs root access; rerun sudo elgatolight setup")
+	}
 
-	targetName := strings.TrimSpace(flags.targetUser)
+	var err error
+	targetName := ""
 	if scope == installer.ScopeSystem {
 		targetName = "root"
-	} else if scope == installer.ScopeUser && targetName == "" {
-		targetName = strings.TrimSpace(os.Getenv("SUDO_USER"))
-		if targetName == "" || targetName == "root" {
-			if !interactive {
-				return resolvedSetup{}, errors.New("--target-user is required for user scope when SUDO_USER is unavailable")
-			}
-			targetName, err = promptRequired(reader, command.OutOrStdout(), "Login user for the service")
-			if err != nil {
-				return resolvedSetup{}, err
-			}
+	} else if scope == installer.ScopeUser {
+		account, currentErr := user.Current()
+		if currentErr != nil {
+			return resolvedSetup{}, fmt.Errorf("look up current user: %w", currentErr)
 		}
+		targetName = account.Username
 	}
 	target := installer.TargetUser{}
 	if scope != installer.ScopeNone {

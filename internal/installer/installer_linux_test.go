@@ -71,12 +71,60 @@ func TestUserInstallIsIdempotent(t *testing.T) {
 	if !strings.Contains(string(unit), `ExecStart="`+binary+`" daemon`) {
 		t.Fatalf("unit does not reference installed binary:\n%s", unit)
 	}
+	if strings.Contains(string(unit), "network-online.target") {
+		t.Fatalf("user unit waits on a system-only network target:\n%s", unit)
+	}
 	link := filepath.Join(filepath.Dir(first.UnitPath), "default.target.wants", "elgatolight.service")
 	if target, err := os.Readlink(link); err != nil || target != "../elgatolight.service" {
 		t.Fatalf("service link = %q, %v", target, err)
 	}
 	if len(commands) != 5 {
 		t.Fatalf("commands = %v", commands)
+	}
+	if strings.Contains(strings.Join(commands, "\n"), "runuser") {
+		t.Fatalf("user setup escaped the current login session: %v", commands)
+	}
+	if !strings.Contains(strings.Join(commands, "\n"), "systemctl --user restart --no-block elgatolight.service") {
+		t.Fatalf("user service restart is blocking: %v", commands)
+	}
+}
+
+func TestUserInstallCanSkipAlreadyElevatedUSBSetup(t *testing.T) {
+	withoutChown(t)
+	root := t.TempDir()
+	home := filepath.Join(root, "home", "alice")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	result, err := Apply(Config{
+		Scope:            ScopeUser,
+		Target:           TargetUser{Name: "alice", Home: home, UID: 1000, GID: 1000},
+		BinaryPath:       testSource(t),
+		HomeAssistantURL: "https://ha.example.test",
+		CredentialsPath:  filepath.Join(home, ".local", "state", "elgatolight", "credentials.json"),
+		RootDir:          root,
+		SkipUSBRule:      true,
+		Run: func(name string, args ...string) error {
+			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RuleChanged {
+		t.Fatalf("result = %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc", "udev", "rules.d", "99-elgato-key-light-neo.rules")); !os.IsNotExist(err) {
+		t.Fatalf("USB rule was unexpectedly written: %v", err)
+	}
+	want := []string{
+		"systemctl --user daemon-reload",
+		"systemctl --user restart --no-block elgatolight.service",
+	}
+	if fmt.Sprint(commands) != fmt.Sprint(want) {
+		t.Fatalf("commands = %v, want %v", commands, want)
 	}
 }
 
@@ -133,7 +181,7 @@ func TestSystemInstallUsesSystemdAndRootedFiles(t *testing.T) {
 		"udevadm control --reload-rules",
 		"systemctl daemon-reload",
 		"systemctl enable elgatolight.service",
-		"systemctl restart elgatolight.service",
+		"systemctl restart --no-block elgatolight.service",
 	}
 	if fmt.Sprint(commands) != fmt.Sprint(want) {
 		t.Fatalf("commands = %v, want %v", commands, want)

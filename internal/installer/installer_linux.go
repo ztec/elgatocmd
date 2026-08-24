@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 
@@ -47,6 +46,7 @@ type Config struct {
 	HomeAssistantURL string
 	CredentialsPath  string
 	RootDir          string
+	SkipUSBRule      bool
 	Run              CommandRunner
 	Warnf            func(string, ...any)
 }
@@ -74,14 +74,18 @@ func Apply(config Config) (Result, error) {
 		config.Warnf = func(string, ...any) {}
 	}
 
-	rulePath := rooted(config.RootDir, "/etc/udev/rules.d/99-elgato-key-light-neo.rules")
-	ruleChanged, err := writeManagedFile(rulePath, []byte(packaging.UdevRule), 0o644, 0, 0, true)
-	if err != nil {
-		return Result{}, fmt.Errorf("install udev rule: %w", err)
-	}
-	if ruleChanged {
-		if err := config.Run("udevadm", "control", "--reload-rules"); err != nil {
-			return Result{}, fmt.Errorf("reload udev rules: %w", err)
+	ruleChanged := false
+	if !config.SkipUSBRule {
+		rulePath := rooted(config.RootDir, "/etc/udev/rules.d/99-elgato-key-light-neo.rules")
+		var err error
+		ruleChanged, err = writeManagedFile(rulePath, []byte(packaging.UdevRule), 0o644, 0, 0, true)
+		if err != nil {
+			return Result{}, fmt.Errorf("install udev rule: %w", err)
+		}
+		if ruleChanged {
+			if err := config.Run("udevadm", "control", "--reload-rules"); err != nil {
+				return Result{}, fmt.Errorf("reload udev rules: %w", err)
+			}
 		}
 	}
 	if config.Scope == ScopeNone {
@@ -111,22 +115,16 @@ func Apply(config Config) (Result, error) {
 		if err := config.Run("systemctl", "enable", "elgatolight.service"); err != nil {
 			return Result{}, fmt.Errorf("enable system service: %w", err)
 		}
-		if err := config.Run("systemctl", "restart", "elgatolight.service"); err != nil {
+		if err := config.Run("systemctl", "restart", "--no-block", "elgatolight.service"); err != nil {
 			return Result{}, fmt.Errorf("start or restart system service: %w", err)
 		}
 	} else {
 		if err := enableUserUnit(unitPath, config.Target); err != nil {
 			return Result{}, err
 		}
-		userSystemctl := []string{
-			"-u", config.Target.Name, "--", "env",
-			"XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(config.Target.UID),
-			"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(config.Target.UID) + "/bus",
-			"systemctl", "--user",
-		}
-		if err := config.Run("runuser", append(userSystemctl, "daemon-reload")...); err != nil {
+		if err := config.Run("systemctl", "--user", "daemon-reload"); err != nil {
 			config.Warnf("could not reload the active user systemd manager; the service is enabled for the next login: %v", err)
-		} else if err := config.Run("runuser", append(userSystemctl, "restart", "elgatolight.service")...); err != nil {
+		} else if err := config.Run("systemctl", "--user", "restart", "--no-block", "elgatolight.service"); err != nil {
 			config.Warnf("could not start the user service now; it is enabled for the next login: %v", err)
 		}
 	}

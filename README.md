@@ -27,21 +27,20 @@ wget -qO- https://github.com/ztec/elgatocmd/raw/refs/heads/main/install.sh | sh
 ```
 
 The default install directory is `~/.local/bin`, or `/usr/local/bin` when the
-installer runs as root. After installation, run the setup command printed by
-the installer:
+installer runs as root. For command-line use, configure USB access with:
 
 ```sh
-sudo ~/.local/bin/elgatolight setup
+~/.local/bin/elgatolight setup --scope none
 ```
 
-Setup installs the USB permissions and offers three service options:
+Setup detects how it was invoked and supports three service modes:
 
-- `user`: start the Home Assistant service when the selected user logs in.
-- `system`: start the Home Assistant service when the computer boots.
-- `none`: install USB permissions only and use the command-line interface.
+- `elgatolight setup`: user service, started when you log in.
+- `sudo elgatolight setup`: system service, started when the computer boots.
+- `elgatolight setup --scope none`: USB access for command-line use only.
 
-Choose `none` for command-line use. Unplug and reconnect the light once after
-the first setup.
+A user or CLI-only setup asks for sudo only while installing the USB permission
+rule. Unplug and reconnect the light once after the first setup.
 
 Common commands:
 
@@ -82,21 +81,19 @@ First install the integration:
 Then use the installer above on the computer connected to the light and run:
 
 ```sh
-sudo ~/.local/bin/elgatolight setup
+~/.local/bin/elgatolight setup
 ```
 
-Choose `user` to start the daemon whenever that user logs in, or `system` to
-start it at boot. Setup asks for the externally reachable Home Assistant/proxy
-URL, opens the OAuth authorization flow, installs the USB rule, and enables and
-starts the systemd service. It is idempotent and safely refreshes the service
-after a binary upgrade.
+This starts the daemon whenever you log in. Run the same command with `sudo` to
+install a system service that starts at boot. Setup asks for the externally
+reachable Home Assistant/proxy URL, opens the OAuth authorization flow,
+installs the USB rule, and enables and starts the matching systemd service. It
+is idempotent and safely refreshes the service after a binary upgrade.
 
-For unattended setup, provide every choice as flags:
+For unattended setup, provide the required values as flags:
 
 ```sh
-sudo ~/.local/bin/elgatolight setup \
-  --scope user \
-  --target-user alice \
+~/.local/bin/elgatolight setup \
   --ha-url https://homeassistant.example.test \
   --yes
 ```

@@ -28,7 +28,7 @@ func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		if errors.Is(err, fs.ErrPermission) {
-			fmt.Fprintln(os.Stderr, "USB access is denied. Run sudo elgatolight setup, then reconnect the light.")
+			fmt.Fprintln(os.Stderr, "USB access is denied. Run elgatolight setup --scope none, then reconnect the light.")
 		}
 		os.Exit(1)
 	}

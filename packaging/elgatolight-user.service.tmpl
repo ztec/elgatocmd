@@ -1,8 +1,6 @@
 # Managed by elgatolight setup.
 [Unit]
 Description=Elgato USB Light Home Assistant bridge
-Wants=network-online.target
-After=network-online.target
 
 [Service]
 Type=simple
@@ -12,4 +10,3 @@ RestartSec=3s
 
 [Install]
 WantedBy=default.target
-

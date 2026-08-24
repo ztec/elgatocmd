@@ -31,7 +31,7 @@ The download installer installs the binary. Setup then configures USB access
 and an optional service:
 
 ```sh
-sudo ./elgatolight setup
+./elgatolight setup --scope none
 ```
 
 The root `install.sh` script automates the download. It queries the Forgejo API
@@ -44,36 +44,37 @@ installs the binary in the interactively selected directory. The default is
 Set `ELGATOLIGHT_INSTALL_DIR` to choose the directory without a prompt. Set
 `ELGATOLIGHT_RELEASE_API` to use another compatible Forgejo release API.
 
-Setup must run as root because it writes the udev rule and may create a system
-unit. It asks for one of three service options:
+Setup infers the service mode from its privileges:
 
-- `user` pairs with Home Assistant and enables a user systemd service under
-  `~/.config/systemd/user`; it starts when that user logs in.
-- `system` pairs with Home Assistant and enables a system service that starts
-  when the computer boots.
-- `none` installs the USB rule only for command-line use.
+- Run `elgatolight setup` as a regular user to pair with Home Assistant and
+  enable a service under `~/.config/systemd/user`; it starts at login. Setup
+  invokes sudo only for the embedded udev rule.
+- Run `sudo elgatolight setup` to pair as root and enable a system service that
+  starts when the computer boots.
+- Run `elgatolight setup --scope none` to install USB access for command-line
+  use without a daemon service.
 
 User and system services execute the binary that invoked setup. Install the
 binary in a durable path; `/usr/local/bin` is the recommended location for a
 system service. Setup keeps an existing matching OAuth authorization, reloads
-udev when its managed rule changes, and safely refreshes the selected service.
-Destination validation protects existing administrator-owned units, rules,
-and links.
+udev when its managed rule changes, and queues a non-blocking refresh of the
+selected service. The user service starts independently of a user-level
+`network-online.target`; the daemon's reconnect loop handles network readiness.
+Destination validation protects existing administrator-owned units, rules, and
+links.
 
-Every interactive choice has a flag equivalent:
+Every setup value has a flag equivalent:
 
 ```sh
-sudo ./elgatolight setup \
-  --scope user \
-  --target-user alice \
+./elgatolight setup \
   --ha-url https://homeassistant.example.test \
-  --credentials /home/alice/.local/state/elgatolight/credentials.json \
+  --credentials /home/example/.local/state/elgatolight/credentials.json \
   --yes
 ```
 
-Noninteractive setup requires `--scope` and `--yes`. User scope also requires
-`--target-user` when `SUDO_USER` is unavailable, and both service scopes require
-`--ha-url`. The existing persistent flags
+Noninteractive setup infers user or system scope, requires `--yes`, and requires
+`--ha-url` for a service. Use an explicit `--scope none` for CLI-only setup. The
+existing persistent flags
 `--oauth-callback` and `--insecure-skip-tls-verify` also apply to OAuth during
 setup. Run `elgatolight setup --help` for the generated reference.
 
@@ -228,14 +229,14 @@ The release self-installer is the simplest daemon setup. After installing the
 Home Assistant integration, run:
 
 ```sh
-sudo ./elgatolight setup
+./elgatolight setup
 ```
 
-Choose `user` or `system` and enter the externally reachable Home Assistant URL.
-Setup completes OAuth pairing, installs the service, enables it for login or
-boot, and starts it immediately. To upgrade, run the download installer again,
-then rerun setup to preserve configuration and restart the service with the new
-binary.
+Enter the externally reachable Home Assistant URL. Setup completes OAuth
+pairing, installs the user service, enables it for login, and starts it
+immediately. Run `sudo ./elgatolight setup` instead for a boot-time system
+service. To upgrade, run the download installer again, then rerun setup to
+preserve configuration and restart the service with the new binary.
 
 For a foreground or manually supervised daemon, the first start supplies the
 Home Assistant URL:
@@ -304,8 +305,8 @@ To upgrade the Home Assistant side, download the update in HACS and restart
 Home Assistant. For manual installations, update the clone and copy the custom
 component into the persistent configuration volume again before restarting.
 To upgrade the daemon, run the download installer again and rerun
-`elgatolight setup` as root; matching credentials are preserved and the service
-is restarted.
+`elgatolight setup` with the same user or system mode; matching credentials are
+preserved and the service is restarted.
 
 The credential file supports moving the daemon while keeping the same Home
 Assistant address. Treat it as a secret and preserve mode `0600` when copying
@@ -328,7 +329,7 @@ beforehand.
 - **Pairing readiness:** install and restart the Home Assistant integration,
   add it under Devices & services, then run `pair` again.
 - **Authorization renewal:** run `pair --ha-url URL` interactively.
-- **USB access:** rerun `sudo elgatolight setup`, unplug and reconnect the
+- **USB access:** rerun `elgatolight setup --scope none`, unplug and reconnect the
   light, then verify it with `elgatolight info --json`.
 - **Entity discovery:** inspect daemon logs and `auth status`, and configure the
   HA ingress for WebSocket upgrades at `/api/websocket`.
@@ -405,11 +406,11 @@ The command first runs every Go and Home Assistant test inside the Dockerfile
 image, then writes archives and SHA-256 checksums under `dist/` for:
 
 - Linux: amd64, arm64, and armv7.
-- Windows: amd64 and arm64.
 - macOS (`darwin`): amd64 and arm64.
 
-Linux artifacts include the USB transport and self-installer. Windows and macOS
-artifacts provide the portable CLI, configuration, help, and version surface.
+Linux artifacts include the USB transport and self-installer. macOS artifacts
+provide the portable configuration, help, authentication, and version surface.
+USB light access remains Linux-only.
 
 `.forgejo/workflows/test.yaml` runs `make container-test` for branch pushes.
 Tag pushes run `.forgejo/workflows/release.yaml`, which accepts every existing
