@@ -104,7 +104,7 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 	}
 
 	connected := waitEvent(t, events, EventConnected)
-	if connected.Light.ID != "SERIAL-A" || !connected.Light.Available || connected.Light.Capabilities.MaxBrightness != 40 {
+	if connected.Source != EventSourceLight || connected.Light.ID != "SERIAL-A" || !connected.Light.Available || connected.Light.Capabilities.MaxBrightness != 40 {
 		t.Fatalf("connected event = %#v", connected)
 	}
 
@@ -119,7 +119,7 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 		t.Fatalf("updated light = %#v", updated)
 	}
 	changed := waitEvent(t, events, EventStateChanged)
-	if changed.Sequence <= connected.Sequence || changed.Light.State.Brightness != 30 {
+	if changed.Source != EventSourceUpdate || changed.Sequence <= connected.Sequence || changed.Light.State.Brightness != 30 {
 		t.Fatalf("changed event = %#v", changed)
 	}
 
@@ -132,7 +132,7 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 	physical := waitEventMatching(t, events, func(event Event) bool {
 		return event.Type == EventStateChanged && event.Light.State.Brightness == 15
 	})
-	if physical.Sequence <= changed.Sequence {
+	if physical.Source != EventSourceLight || physical.Sequence <= changed.Sequence {
 		t.Fatalf("physical sequence = %d after %d", physical.Sequence, changed.Sequence)
 	}
 
@@ -140,7 +140,7 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 	devices = nil
 	discoveryMu.Unlock()
 	disconnected := waitEvent(t, events, EventDisconnected)
-	if disconnected.Light.Available {
+	if disconnected.Source != EventSourceLight || disconnected.Light.Available {
 		t.Fatalf("disconnected light remained available: %#v", disconnected.Light)
 	}
 	if got := manager.ConnectedSnapshot(); len(got) != 0 {

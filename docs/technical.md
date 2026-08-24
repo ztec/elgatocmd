@@ -299,6 +299,23 @@ after every reconnect. A sequence gap causes a full authoritative resync. When
 the daemon or a USB light disconnects, Home Assistant retains the entity and
 marks it unavailable.
 
+### Daemon logs
+
+For a user service, inspect status and follow its journal with:
+
+```sh
+systemctl --user status elgatolight.service
+journalctl --user -u elgatolight.service -f
+```
+
+For a system service, use `systemctl status elgatolight.service` and
+`journalctl -u elgatolight.service -f`. Action lines identify their origin as
+`source=light` for physical controls or `source=home_assistant` for Home
+Assistant commands. They include the stable light ID, changed/requested values,
+the authoritative resulting state, and command errors. Device connection,
+disconnection, and availability changes are logged as lifecycle events.
+Unchanged USB polls are not logged.
+
 ### Upgrade, move, and removal
 
 To upgrade the Home Assistant side, download the update in HACS and restart

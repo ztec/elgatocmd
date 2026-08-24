@@ -50,10 +50,20 @@ const (
 	EventDisconnected EventType = "device_disconnected"
 )
 
+// EventSource distinguishes state observed through device polling from a
+// state produced by an explicit Manager.Update call.
+type EventSource string
+
+const (
+	EventSourceLight  EventSource = "light"
+	EventSourceUpdate EventSource = "update"
+)
+
 // Event is emitted in strict sequence order for one Manager instance.
 type Event struct {
-	Sequence uint64    `json:"sequence"`
-	Time     time.Time `json:"time"`
-	Type     EventType `json:"type"`
-	Light    Light     `json:"light"`
+	Sequence uint64      `json:"sequence"`
+	Time     time.Time   `json:"time"`
+	Type     EventType   `json:"type"`
+	Source   EventSource `json:"source"`
+	Light    Light       `json:"light"`
 }

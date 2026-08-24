@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -112,6 +113,8 @@ func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	done := make(chan error, 1)
+	var logMu sync.Mutex
+	var logs []string
 	go func() {
 		done <- Run(ctx, Config{
 			Credentials: homeassistant.Credentials{
@@ -119,6 +122,11 @@ func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 			},
 			Auth: homeassistant.AuthClient{HTTPClient: server.Client()}, HTTPClient: server.Client(), Manager: manager,
 			CallTimeout: time.Second, MinBackoff: time.Millisecond, MaxBackoff: 10 * time.Millisecond,
+			Logf: func(format string, values ...any) {
+				logMu.Lock()
+				logs = append(logs, fmt.Sprintf(format, values...))
+				logMu.Unlock()
+			},
 		})
 	}()
 
@@ -140,6 +148,58 @@ func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 	physical.mu.Unlock()
 	if state.On != 1 || state.Brightness != 50 || elgato.MiredToKelvin(state.Temperature) != 4505 {
 		t.Fatalf("physical state after HA command = %#v", state)
+	}
+	logMu.Lock()
+	output := strings.Join(logs, "\n")
+	logMu.Unlock()
+	for _, field := range []string{
+		`action source=home_assistant light="SERIAL-A" request="request-1"`,
+		"requested_on=true", "requested_brightness=50", "requested_temperature=4500K",
+		"result=success", "on=true", "brightness=50", "temperature=4505K",
+	} {
+		if !strings.Contains(output, field) {
+			t.Errorf("daemon log omitted %q:\n%s", field, output)
+		}
+	}
+	if strings.Contains(output, "action source=light") {
+		t.Fatalf("HA command was also logged as a physical action:\n%s", output)
+	}
+}
+
+func TestActionLoggingDistinguishesPhysicalAndUpdateEvents(t *testing.T) {
+	var logs []string
+	config := Config{Logf: func(format string, values ...any) {
+		logs = append(logs, fmt.Sprintf(format, values...))
+	}}
+	light := lights.Light{
+		ID: "SERIAL-A", Available: true,
+		State: lights.State{On: true, Brightness: 34, Temperature: 3000},
+	}
+	logManagerEvent(config, lights.Event{Type: lights.EventStateChanged, Source: lights.EventSourceLight, Light: light})
+	if got, want := logs[len(logs)-1], `action source=light light="SERIAL-A" on=true brightness=34 temperature=3000K`; got != want {
+		t.Fatalf("physical action log = %q, want %q", got, want)
+	}
+
+	before := len(logs)
+	logManagerEvent(config, lights.Event{Type: lights.EventStateChanged, Source: lights.EventSourceUpdate, Light: light})
+	if len(logs) != before {
+		t.Fatalf("explicit update was also logged as a physical action: %v", logs)
+	}
+
+	brightness := 99
+	command := homeassistant.SubscriptionEvent{
+		RequestID: "request-2", DeviceID: light.ID,
+		Update: lights.Update{Brightness: &brightness},
+	}
+	logHomeAssistantAction(config, command, lights.Light{}, errors.New("USB write failed"))
+	got := logs[len(logs)-1]
+	for _, field := range []string{
+		`action source=home_assistant light="SERIAL-A" request="request-2"`,
+		"requested_brightness=99", "result=error", `error="USB write failed"`,
+	} {
+		if !strings.Contains(got, field) {
+			t.Errorf("failed HA action log omitted %q: %s", field, got)
+		}
 	}
 }
 

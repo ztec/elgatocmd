@@ -206,7 +206,7 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		light := current.snapshot()
 		light.Available = false
 		light.Error = "device disconnected"
-		m.record(ctx, EventDisconnected, light)
+		m.record(ctx, EventDisconnected, EventSourceLight, light)
 	}
 
 	for _, device := range found {
@@ -232,7 +232,7 @@ func (m *Manager) stopAll() {
 	}
 }
 
-func (m *Manager) record(ctx context.Context, eventType EventType, light Light) {
+func (m *Manager) record(ctx context.Context, eventType EventType, source EventSource, light Light) {
 	m.mu.Lock()
 	previous, exists := m.lights[light.ID]
 	if eventType == EventStateChanged && exists && reflect.DeepEqual(previous, light) {
@@ -245,7 +245,7 @@ func (m *Manager) record(ctx context.Context, eventType EventType, light Light) 
 	if events == nil {
 		return
 	}
-	event := Event{Sequence: m.seq.Add(1), Time: time.Now().UTC(), Type: eventType, Light: light}
+	event := Event{Sequence: m.seq.Add(1), Time: time.Now().UTC(), Type: eventType, Source: source, Light: light}
 	select {
 	case events <- event:
 	case <-ctx.Done():
@@ -386,7 +386,7 @@ func (w *worker) pollWithType(ctx context.Context, eventType EventType) {
 		light.Available = false
 		light.Error = err.Error()
 		w.set(light)
-		w.manager.record(ctx, eventType, light)
+		w.manager.record(ctx, eventType, EventSourceLight, light)
 		return
 	}
 	state, err := stateFromStatus(status)
@@ -399,7 +399,7 @@ func (w *worker) pollWithType(ctx context.Context, eventType EventType) {
 		light.State = state
 	}
 	w.set(light)
-	w.manager.record(ctx, eventType, light)
+	w.manager.record(ctx, eventType, EventSourceLight, light)
 }
 
 func (w *worker) apply(ctx context.Context, update Update) (Light, error) {
@@ -424,7 +424,7 @@ func (w *worker) apply(ctx context.Context, update Update) (Light, error) {
 	current.Error = ""
 	current.State = state
 	w.set(current)
-	w.manager.record(ctx, EventStateChanged, current)
+	w.manager.record(ctx, EventStateChanged, EventSourceUpdate, current)
 	return current, nil
 }
 

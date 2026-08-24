@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
 	"elgatolight/internal/homeassistant"
@@ -181,6 +182,7 @@ func runConnection(
 			}
 			return err
 		case event := <-events:
+			logManagerEvent(config, event)
 			if event.Sequence <= baseline {
 				continue
 			}
@@ -262,6 +264,7 @@ func handleCommand(ctx context.Context, config Config, client *homeassistant.Web
 	} else {
 		result.Light = &light
 	}
+	logHomeAssistantAction(config, command, light, updateErr)
 	callCtx, cancel := context.WithTimeout(ctx, config.CallTimeout)
 	_, err := client.Call(callCtx, result)
 	cancel()
@@ -269,4 +272,62 @@ func handleCommand(ctx context.Context, config Config, client *homeassistant.Web
 		return fmt.Errorf("send command result for %s: %w", command.DeviceID, err)
 	}
 	return nil
+}
+
+func logManagerEvent(config Config, event lights.Event) {
+	switch event.Type {
+	case lights.EventConnected:
+		logConnectedLight(config, event.Light)
+	case lights.EventDisconnected:
+		config.Logf("device event=disconnected source=light light=%q error=%q", event.Light.ID, event.Light.Error)
+	case lights.EventStateChanged:
+		if event.Source != lights.EventSourceLight {
+			return
+		}
+		if !event.Light.Available {
+			config.Logf("device event=unavailable source=light light=%q error=%q", event.Light.ID, event.Light.Error)
+			return
+		}
+		config.Logf("action source=light light=%q %s", event.Light.ID, formatState(event.Light.State))
+	}
+}
+
+func logConnectedLight(config Config, light lights.Light) {
+	if !light.Available {
+		config.Logf("device event=connected source=light light=%q available=false error=%q", light.ID, light.Error)
+		return
+	}
+	config.Logf("device event=connected source=light light=%q available=true %s", light.ID, formatState(light.State))
+}
+
+func logHomeAssistantAction(config Config, command homeassistant.SubscriptionEvent, light lights.Light, actionErr error) {
+	fields := formatUpdate(command.Update)
+	if actionErr != nil {
+		config.Logf("action source=home_assistant light=%q request=%q %s result=error error=%q",
+			command.DeviceID, command.RequestID, fields, actionErr)
+		return
+	}
+	config.Logf("action source=home_assistant light=%q request=%q %s result=success %s",
+		command.DeviceID, command.RequestID, fields, formatState(light.State))
+}
+
+func formatUpdate(update lights.Update) string {
+	fields := make([]string, 0, 3)
+	if update.On != nil {
+		fields = append(fields, fmt.Sprintf("requested_on=%t", *update.On))
+	}
+	if update.Brightness != nil {
+		fields = append(fields, fmt.Sprintf("requested_brightness=%d", *update.Brightness))
+	}
+	if update.Temperature != nil {
+		fields = append(fields, fmt.Sprintf("requested_temperature=%dK", *update.Temperature))
+	}
+	if len(fields) == 0 {
+		return "requested=none"
+	}
+	return strings.Join(fields, " ")
+}
+
+func formatState(state lights.State) string {
+	return fmt.Sprintf("on=%t brightness=%d temperature=%dK", state.On, state.Brightness, state.Temperature)
 }
