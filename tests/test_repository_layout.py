@@ -48,3 +48,36 @@ def test_published_repository_metadata() -> None:
     assert "[Technical documentation](docs/technical.md)" in readme
     assert len(readme.splitlines()) < 120
     assert "PLACEHOLDER" not in published_metadata
+
+
+def test_forgejo_workflows_use_the_project_runner_and_container_build() -> None:
+    """Keep CI and releases reproducible through the Dockerfile image."""
+    test_workflow = (ROOT / ".forgejo/workflows/test.yaml").read_text(
+        encoding="utf-8"
+    )
+    release_workflow = (ROOT / ".forgejo/workflows/release.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "runs-on: ubuntu-24.04" in test_workflow
+    assert "make container-test CONTAINER_ENGINE=docker" in test_workflow
+    assert "runs-on: ubuntu-24.04" in release_workflow
+    assert "^[0-9]+\\.[0-9]+$" in release_workflow
+    assert "make release CONTAINER_ENGINE=docker" in release_workflow
+    assert "https://code.forgejo.org/actions/forgejo-release@v2.13.4" in release_workflow
+    assert "release-dir: dist" in release_workflow
+
+
+def test_distrobox_and_automation_share_the_dockerfile_image() -> None:
+    """Avoid a second, drifting dependency definition for development."""
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    distrobox = (ROOT / "distrobox.ini").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "golang" in dockerfile
+    assert "requirements-dev.txt" in dockerfile
+    assert "image=localhost/elgatolight-build:dev" in distrobox
+    assert "CONTAINER_ENGINE ?=" in makefile
+    assert "DBX_CONTAINER_MANAGER=$(CONTAINER_MANAGER_NAME)" in makefile
+    assert "container-test:" in makefile
+    assert "setup:" not in makefile

@@ -81,6 +81,22 @@ func TestCredentialStorePermissionsAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCredentialStoreRefusesSymlink(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	target := filepath.Join(directory, "target.json")
+	if err := os.WriteFile(target, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "credentials.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (CredentialStore{Path: link}).Load(); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("Load through symlink error = %v", err)
+	}
+}
+
 func TestTokenRefreshAndRevoke(t *testing.T) {
 	t.Parallel()
 	var refreshSeen, revokeSeen bool

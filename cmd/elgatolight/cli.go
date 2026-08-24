@@ -43,7 +43,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 	root := &cobra.Command{
 		Use:           "elgatolight",
 		Short:         "Control Elgato Key Light Neo devices over USB",
-		Version:       version,
+		Version:       applicationVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -56,6 +56,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.PersistentFlags().String("config", "", "configuration file (default: $XDG_CONFIG_HOME/elgatolight/config.*)")
 	root.PersistentFlags().String("light", "", "stable USB serial to select")
 	root.PersistentFlags().String("device", "", "hidraw device path instead of a stable ID")
@@ -92,6 +93,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 		app.pairCommand(),
 		app.authCommand(),
 		app.daemonCommand(),
+		app.setupCommand(),
 	)
 	root.InitDefaultCompletionCmd()
 	return app, nil

@@ -12,11 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"elgatolight/internal/buildinfo"
 	"elgatolight/internal/elgato"
 	"elgatolight/internal/hidraw"
 )
-
-var version = "dev"
 
 type options struct {
 	device  string
@@ -29,11 +28,13 @@ func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		if errors.Is(err, fs.ErrPermission) {
-			fmt.Fprintln(os.Stderr, "USB access is denied. Run make setup, then reconnect the light.")
+			fmt.Fprintln(os.Stderr, "USB access is denied. Run sudo elgatolight setup, then reconnect the light.")
 		}
 		os.Exit(1)
 	}
 }
+
+func applicationVersion() string { return buildinfo.Version }
 
 func run(args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

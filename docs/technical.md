@@ -18,27 +18,59 @@ information for `elgatolight`. For basic setup, start with the
 
 The two hardware preset buttons store brightness/temperature combinations. The
 USB settings endpoint exposes both slots as favourites, so the CLI can list and
-apply them without overwriting either slot. Saving a new value remains a
-physical operation: adjust the light, then hold preset button I or II for three
-seconds. Recalling a preset changes ordinary light state, so the CLI monitor and
-Home Assistant both see it.
+apply each one independently. Save a new value by adjusting the light, then
+holding preset button I or II for three seconds. Recalling a preset changes
+ordinary light state, so the CLI monitor and Home Assistant both see it.
 
-## USB permission
+## Self-installer and USB permission
 
-Fedora normally exposes the light as root-only. Install the included,
-device-specific udev rule once:
+Download the Linux archive for your CPU from the
+[latest release](https://git2.riper.fr/ztec/elgatocmd/releases/latest). The
+release binary embeds its device-specific udev rule and systemd templates.
+Setup installs the binary and grants the selected user access to the USB light:
 
 ```sh
-make setup
+sudo ./elgatolight setup
 ```
 
-Run Make as your normal user. The target uses `sudo` only to install the rule
-and reload udev; running the whole Make process with `sudo` can leave root-owned
-build files behind. If already in a root shell, `make setup` automatically
-omits `sudo`.
+Setup must run as root because it writes the udev rule and may create a system
+unit. When invoked through `sudo`, it detects `SUDO_USER` and defaults to that
+login user's `~/.local/bin`. It asks for one of three scopes:
 
-Unplug and reconnect the light after setup. The rule uses systemd-logind's
-`uaccess` tag, so only the active local desktop user receives access.
+- `cli` installs the binary and USB rule only.
+- `user` additionally pairs with Home Assistant and enables a user systemd
+  service under `~/.config/systemd/user`; it starts at login.
+- `system` pairs with Home Assistant, installs under `/usr/local/bin` by
+  default, and enables a system service that starts at boot.
+
+The system scope uses a root-owned executable directory such as
+`/usr/local/bin`. All installed files carry a managed marker. Setup recognizes
+and atomically upgrades its managed files, keeps an existing matching OAuth
+authorization, reloads udev when its rule changes, and safely restarts the
+selected service. Destination validation protects existing administrator-owned
+units, rules, and links.
+
+Every interactive choice has a flag equivalent:
+
+```sh
+sudo ./elgatolight setup \
+  --scope user \
+  --target-user alice \
+  --ha-url https://homeassistant.example.test \
+  --install-dir /home/alice/.local/bin \
+  --credentials /home/alice/.local/state/elgatolight/credentials.json \
+  --yes
+```
+
+Noninteractive setup requires `--scope` and `--yes`. User/CLI scope also
+requires `--target-user` when setup needs an explicit login identity, and both
+service scopes require `--ha-url`. The existing persistent flags
+`--oauth-callback` and `--insecure-skip-tls-verify` also apply to OAuth during
+setup. Run `elgatolight setup --help` for the generated reference.
+
+Unplug and reconnect the light after the first setup. The rule uses
+systemd-logind's `uaccess` tag to grant the active local desktop user access. A
+system service runs as root and accesses the device directly.
 
 ## Command-line reference
 
@@ -84,14 +116,16 @@ bin/elgatolight --light A7BTB4251316ZB brightness 30
 ```
 
 The serial survives unplugging, reconnecting, and changes to `/dev/hidrawN`.
-Hardware without a serial falls back to a visibly marked path-based ID. The
-`--device /dev/hidrawN` option remains available for diagnostics.
+Hardware that exposes a USB serial receives a stable serial-based ID. Other
+hardware receives a visibly marked path-based ID. The `--device /dev/hidrawN`
+option is available for diagnostics.
 
 `watch` requires a terminal. It rediscovers lights on every polling cycle and
-rewrites its existing tree rows using ANSI cursor controls, so physical changes
-do not add scrolling output. Use `log` for automation or redirected output. It
-emits one compact JSON object per line, beginning with an `initial` event and
-then a `change` event whenever state or the connected-light set changes:
+rewrites its existing tree rows using ANSI cursor controls, keeping the display
+in place as physical state changes. Use `log` for automation or redirected
+output. It emits one compact JSON object per line, beginning with an `initial`
+event and then a `change` event whenever state or the connected-light set
+changes:
 
 ```json
 {"time":"2026-08-24T15:55:49Z","event":"initial","lights":[{"id":"A7BTB4251316ZB","stableId":true,"device":"/dev/hidraw13","on":false,"brightness":40,"temperature":3300,"temperatureMired":303}]}
@@ -147,16 +181,14 @@ command: `bin/elgatolight info --config ./lights.yaml --json`.
 Elgato USB light <-- hidraw --> elgatolight daemon == OAuth WebSocket ==> Home Assistant
 ```
 
-The bridge is outbound-only. Home Assistant never needs to resolve or connect
-to the daemon. The daemon can move between hosts or networks as long as it can
-reach the configured Home Assistant URL. There is no MQTT broker and no
-permanent inbound daemon port. The only temporary listener is the loopback OAuth
-callback used while pairing.
+The daemon establishes an authenticated WebSocket connection to the configured
+Home Assistant URL. It can move between hosts or networks while retaining that
+outbound reachability. Pairing uses a temporary loopback OAuth callback.
 
 The custom integration creates one native Home Assistant device and light
 entity per stable USB serial. It supports power, brightness, color temperature,
 availability, hotplug, physical control changes, and dynamic addition of more
-lights. State changes are pushed; Home Assistant does not poll the daemon.
+lights. State changes are pushed to Home Assistant in real time.
 
 ### HACS installation
 
@@ -167,40 +199,45 @@ lights. State changes are pushed; Home Assistant does not poll the daemon.
 4. Open **Settings → Devices & services → Add integration**, search for
    **Elgato USB Light Bridge**, and submit its one-click form.
 
-There is no daemon address, webhook, or MQTT configuration in Home Assistant.
-Until the first release is published, HACS installs from the repository's
-default branch.
+The Home Assistant integration uses a one-click configuration entry. The daemon
+receives its Home Assistant URL during `elgatolight setup`. HACS installs the
+integration from the repository's published version or default branch.
 
 ### Manual installation
 
 1. Clone `https://github.com/ztec/elgatocmd.git`, or update an existing clone.
 2. Copy `custom_components/elgatolight` into the Home Assistant persistent
    configuration volume as `/config/custom_components/elgatolight`.
-3. Restart Home Assistant. For Kubernetes, restart the Home Assistant pod using
-   the deployment or StatefulSet that owns `/config`; do not copy into an
-   ephemeral container filesystem.
+3. Restart Home Assistant. For Kubernetes, copy into the persistent `/config`
+   volume and restart the pod through the deployment or StatefulSet that owns
+   that volume.
 4. Add **Elgato USB Light Bridge** under **Settings → Devices & services**.
 
 ### Pairing and daemon operation
 
-Set up USB access and build the binary on the light host:
+The release self-installer is the simplest daemon setup. After installing the
+Home Assistant integration, run:
 
 ```sh
-make setup
-# Unplug and reconnect the light once after setup.
-make build
+sudo ./elgatolight setup
 ```
 
-The simplest first start supplies only the Home Assistant URL:
+Choose `user` or `system` and enter the externally reachable Home Assistant URL.
+Setup completes OAuth pairing, installs the service, enables it for login or
+boot, and starts it immediately. Running the same command from a newer release
+upgrades the binary, preserves configuration, and restarts the service.
+
+For a foreground or manually supervised daemon, the first start supplies the
+Home Assistant URL:
 
 ```sh
 bin/elgatolight daemon --ha-url https://homeassistant.example.test
 ```
 
-If credentials do not exist and the command has an interactive terminal, it
-opens Home Assistant in a browser, asks the user to authorize, verifies that the
-custom integration is enabled, saves the refresh token, and starts the bridge.
-On subsequent starts the URL is read from saved credentials:
+On first start with an interactive terminal, the command opens Home Assistant in
+a browser, asks the user to authorize, verifies that the custom integration is
+enabled, saves the refresh token, and starts the bridge. On subsequent starts
+the URL is read from saved credentials:
 
 ```sh
 bin/elgatolight daemon
@@ -213,15 +250,15 @@ bin/elgatolight pair --ha-url https://homeassistant.example.test
 bin/elgatolight daemon
 ```
 
-The authorization URL is always printed, even if opening the browser fails.
+The authorization URL is always printed so it can also be opened manually.
 Pairing listens on `http://127.0.0.1:18443/oauth/callback` by default. The
 browser must run on the daemon host or reach that loopback listener through an
 SSH local forward such as `ssh -L 18443:127.0.0.1:18443 HOST`.
 
 The configured Home Assistant URL must be reachable by both the daemon and the
-browser during authorization. For Home Assistant in Kubernetes, use its normal
-LAN or HTTPS ingress URL rather than a cluster-only service name. Only outbound
-HTTP(S)/WebSocket access to that URL is required.
+browser during authorization. For Home Assistant in Kubernetes, use a LAN or
+HTTPS ingress URL reachable from both. The daemon uses outbound HTTP(S) and
+WebSocket access to that URL.
 
 Authorization metadata can be inspected or revoked:
 
@@ -235,32 +272,34 @@ The refresh token is stored by default at
 `$XDG_STATE_HOME/elgatolight/credentials.json`, normally
 `~/.local/state/elgatolight/credentials.json`, with owner-only mode `0600`.
 `auth revoke` invalidates the refresh token in Home Assistant and deletes the
-local file. Re-pairing preserves the daemon instance ID so retained entities do
-not change identity.
+local file. Re-pairing preserves the daemon instance ID and retains the same
+entity identity.
 
-For a private Home Assistant installation with an untrusted TLS certificate,
-`--insecure-skip-tls-verify` is available as an explicit last resort. Installing
-the correct CA certificate is safer.
+For a Home Assistant installation using a private certificate authority,
+install that CA on the daemon host. The `--insecure-skip-tls-verify` flag is
+available for temporary certificate diagnosis.
 
 ### Resilience
 
 The daemon polls each physical light independently (250 ms by default), watches
 for USB hotplug, and maintains a sequenced event stream. It reconnects to Home
 Assistant with exponential backoff and sends a complete authoritative snapshot
-after every reconnect. A sequence gap causes a full resync rather than silently
-accepting stale state. If the daemon or a USB light disconnects, the retained
-Home Assistant entity becomes unavailable instead of disappearing.
+after every reconnect. A sequence gap causes a full authoritative resync. When
+the daemon or a USB light disconnects, Home Assistant retains the entity and
+marks it unavailable.
 
 ### Upgrade, move, and removal
 
 To upgrade the Home Assistant side, download the update in HACS and restart
 Home Assistant. For manual installations, update the clone and copy the custom
 component into the persistent configuration volume again before restarting.
-Rebuild/redeploy the Go binary separately and restart the daemon.
+To upgrade the daemon, extract the new release and rerun its `elgatolight setup`
+as root; matching credentials are preserved and the service is restarted.
 
-The credential file is sufficient to move the daemon without a Home Assistant
-address change. Treat it as a secret and preserve mode `0600` when copying it.
-Alternatively, run `auth revoke` on the old host and pair again on the new host.
+The credential file supports moving the daemon while keeping the same Home
+Assistant address. Treat it as a secret and preserve mode `0600` when copying
+it. Alternatively, run `auth revoke` on the old host and pair again on the new
+host.
 
 To remove the bridge completely:
 
@@ -270,41 +309,58 @@ To remove the bridge completely:
 3. Remove the integration in HACS, or delete the manually copied integration
    directory, and restart Home Assistant.
 
-The final systemd unit/installer is tracked in
-[RIP-297](https://linear.app/riper/issue/RIP-297/prepare-the-systemd-daemon-setup-script).
-Until then, run the daemon under an existing process supervisor or in a
-terminal. Non-interactive supervisors must use credentials created by `pair`
+Non-interactive supervisors must use credentials created by `pair` or `setup`
 beforehand.
 
 ### Troubleshooting
 
-- **Integration is not ready during pairing:** install/restart Home Assistant,
-  add the integration in Devices & services, then run `pair` again.
-- **Authorization was revoked:** run `pair --ha-url URL` interactively.
-- **No USB light or permission denied:** run `make setup`, unplug/reconnect the
-  light, and verify `bin/elgatolight info --json`.
-- **No entity appears:** inspect daemon logs and `auth status`; the HA URL must
-  support WebSocket upgrades at `/api/websocket` through its ingress.
-- **Untrusted certificate:** install the private CA on the daemon host. Use
-  `--insecure-skip-tls-verify` only for temporary diagnosis.
+- **Pairing readiness:** install and restart the Home Assistant integration,
+  add it under Devices & services, then run `pair` again.
+- **Authorization renewal:** run `pair --ha-url URL` interactively.
+- **USB access:** rerun `sudo elgatolight setup`, unplug and reconnect the
+  light, then verify it with `elgatolight info --json`.
+- **Entity discovery:** inspect daemon logs and `auth status`, and configure the
+  HA ingress for WebSocket upgrades at `/api/websocket`.
+- **Private certificates:** install the private CA on the daemon host. Use
+  `--insecure-skip-tls-verify` for temporary diagnosis.
 
-## Development workflow
+## Development and container workflow
 
-All build and test dependencies are installed inside the Distrobox. The host
-only needs Distrobox/Podman and the host-level udev rule.
+The `Dockerfile` is the single definition of the Go and Python build/test
+environment. The Makefile prefers Podman and uses Docker as its fallback; set
+`CONTAINER_ENGINE=docker` or `CONTAINER_ENGINE=podman` to choose explicitly.
+Automation requires either engine.
+
+Direct container targets, including the ones used by Forgejo, are:
 
 ```sh
-make box    # create elgatolight-dev from distrobox.ini
-make shell  # create it if needed, then enter it
-make dev    # run the live USB dashboard from source in the box
-make build  # run Go + Home Assistant tests and build bin/elgatolight
+make image           # build localhost/elgatolight-build:dev
+make container-test  # build the image, then run every Go and HA test
+make container-build # run every test, then produce bin/elgatolight
 ```
 
-`make build` is the default target. It creates an ignored `.venv` from inside
-the box for the Home Assistant test runtime. The box contains Go, Make, Git,
-Python, and the native compiler/header packages needed by those tests.
-Distrobox shares the host's `/dev` and supplementary groups, so the udev
-permission is also effective inside the box.
+On a development workstation, Distrobox uses that same locally built image:
+
+```sh
+make box    # build the image and create elgatolight-dev from it
+make shell  # create it if needed, then enter it
+make dev    # run the live USB dashboard from source in the box
+make build  # run all tests and build bin/elgatolight in the box
+```
+
+`make build` is the default developer target. Python dependencies and Go module
+downloads are cached in the image, while generated binaries remain in the
+mounted project. Each build prints its image, container-entry, static-analysis,
+Go-test, Home Assistant-test, and binary stages. The first image build can take
+several minutes; subsequent builds use the engine cache. Distrobox shares the
+host's `/dev` and supplementary groups, so the udev permission is also
+effective inside the box.
+
+The Makefile gives Distrobox an isolated session-bus address while it enters the
+container, then restores the desktop address for the command. This keeps
+host-spawn integration responsive on desktop sessions. Podman uses `cgroupfs`
+and `runc` when available for a self-contained runtime. Docker receives the
+current UID/GID for mounted output files.
 
 To run another development command, override `DEV_ARGS`:
 
@@ -312,6 +368,33 @@ To run another development command, override `DEV_ARGS`:
 make dev DEV_ARGS='daemon --ha-url https://homeassistant.example.test'
 make dev DEV_ARGS='info --json'
 ```
+
+## Releases and Forgejo Actions
+
+Versions and Git tags must match `MAJOR.MINOR` exactly, such as `1.2`. The
+version is injected into every binary at link time and `elgatolight --version`
+prints that exact string. Locally, the complete release can be reproduced with:
+
+```sh
+make release VERSION=1.2
+```
+
+The command first runs every Go and Home Assistant test inside the Dockerfile
+image, then writes archives and SHA-256 checksums under `dist/` for:
+
+- Linux: amd64, arm64, and armv7.
+- Windows: amd64 and arm64.
+- macOS (`darwin`): amd64 and arm64.
+
+Linux artifacts include the USB transport and self-installer. Windows and macOS
+artifacts provide the portable CLI, configuration, help, and version surface.
+
+`.forgejo/workflows/test.yaml` runs `make container-test` for pushes and pull
+requests. `.forgejo/workflows/release.yaml` accepts an existing exact
+`MAJOR.MINOR` tag, runs the same tests, builds all targets, and uploads `dist/`
+to a Forgejo release whose tag and title contain the exact version. Both jobs
+use the Forgejo runner label `ubuntu-24.04`, matching the deployment runner used
+by the referenced infrastructure project.
 
 ## Protocol notes
 

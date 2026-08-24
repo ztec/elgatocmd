@@ -139,7 +139,7 @@ func (app *commandApp) daemonCommand() *cobra.Command {
 			return daemon.Run(app.ctx, daemon.Config{
 				Credentials: credentials,
 				Auth:        homeassistant.AuthClient{HTTPClient: app.homeAssistantHTTPClient(), Output: command.OutOrStdout()},
-				HTTPClient:  app.homeAssistantHTTPClient(), Manager: manager, Version: version,
+				HTTPClient:  app.homeAssistantHTTPClient(), Manager: manager, Version: applicationVersion(),
 				CallTimeout: app.config.GetDuration("daemon.call_timeout"), MinBackoff: app.config.GetDuration("daemon.min_backoff"),
 				MaxBackoff: app.config.GetDuration("daemon.max_backoff"), Logf: logger.Printf,
 			})

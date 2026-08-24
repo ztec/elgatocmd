@@ -265,7 +265,7 @@ type CredentialStore struct {
 }
 
 func (s CredentialStore) Load() (Credentials, error) {
-	info, err := os.Stat(s.Path)
+	info, err := os.Lstat(s.Path)
 	if err != nil {
 		return Credentials{}, err
 	}

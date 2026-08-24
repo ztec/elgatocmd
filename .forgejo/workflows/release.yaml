@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing MAJOR.MINOR tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate the exact version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          version="${FORGEJO_REF_NAME}"
+          if [[ "${FORGEJO_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${DISPATCH_VERSION}"
+            git checkout --detach "refs/tags/${version}"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "error: release tag must match MAJOR.MINOR exactly; got ${version}" >&2
+            exit 2
+          fi
+          echo "version=${version}" >>"${FORGEJO_OUTPUT}"
+
+      - name: Build and test every release target
+        run: make release CONTAINER_ENGINE=docker VERSION="${{ steps.version.outputs.version }}"
+
+      - name: Publish the Forgejo release
+        uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
+        with:
+          direction: upload
+          tag: ${{ steps.version.outputs.version }}
+          title: elgatolight ${{ steps.version.outputs.version }}
+          release-dir: dist
+          release-notes: Cross-platform elgatolight ${{ steps.version.outputs.version }} binaries and SHA-256 checksums.

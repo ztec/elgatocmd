@@ -32,7 +32,7 @@ func newTestCommandApp(t *testing.T) *commandApp {
 
 func TestHomeAssistantCommandTree(t *testing.T) {
 	app := newTestCommandApp(t)
-	for _, path := range []string{"pair", "daemon", "auth status", "auth revoke"} {
+	for _, path := range []string{"pair", "daemon", "auth status", "auth revoke", "setup"} {
 		command, _, err := app.root.Find(strings.Fields(path))
 		if err != nil {
 			t.Fatalf("find %q: %v", path, err)
@@ -45,6 +45,19 @@ func TestHomeAssistantCommandTree(t *testing.T) {
 		if app.root.PersistentFlags().Lookup(flag) == nil {
 			t.Errorf("missing persistent --%s flag", flag)
 		}
+	}
+}
+
+func TestVersionOutputIsExact(t *testing.T) {
+	app := newTestCommandApp(t)
+	var output strings.Builder
+	app.root.SetOut(&output)
+	app.root.SetArgs([]string{"--version"})
+	if err := app.root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), applicationVersion()+"\n"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
 	}
 }
 

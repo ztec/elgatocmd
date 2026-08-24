@@ -1,0 +1,16 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build the test image and run all tests
+        run: make container-test CONTAINER_ENGINE=docker
+
