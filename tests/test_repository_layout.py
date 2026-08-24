@@ -73,6 +73,11 @@ def test_forgejo_workflows_use_the_project_runner_and_container_build() -> None:
     assert "make release CONTAINER_ENGINE=docker" in release_workflow
     assert "https://code.forgejo.org/actions/forgejo-release@v2.13.4" in release_workflow
     assert "release-dir: dist" in release_workflow
+    assert "override: true" in release_workflow
+    assert "prerelease: true" in release_workflow
+    assert "hide-archive-link: true" in release_workflow
+    assert 'git rev-parse --verify "refs/tags/${version}^{commit}"' in release_workflow
+    assert "sha: ${{ steps.version.outputs.sha }}" in release_workflow
 
 
 def test_distrobox_and_automation_share_the_dockerfile_image() -> None:

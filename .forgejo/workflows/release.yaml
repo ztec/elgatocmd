@@ -38,8 +38,10 @@ jobs:
             echo "error: release tag is required" >&2
             exit 2
           fi
+          release_sha="$(git rev-parse --verify "refs/tags/${version}^{commit}")"
           printf '%s' "${version}" >.elgatolight-release-version
           echo "version=${version}" >>"${FORGEJO_OUTPUT}"
+          echo "sha=${release_sha}" >>"${FORGEJO_OUTPUT}"
 
       - name: Build and test every release target
         run: make release CONTAINER_ENGINE=docker VERSION_FILE=.elgatolight-release-version
@@ -48,7 +50,13 @@ jobs:
         uses: https://code.forgejo.org/actions/forgejo-release@v2.13.4
         with:
           direction: upload
+          # Override replaces the release, not its existing Git tag. Any annotated
+          # tag message created from the release title/content remains intact.
+          override: true
+          prerelease: true
+          hide-archive-link: true
           tag: ${{ steps.version.outputs.version }}
+          sha: ${{ steps.version.outputs.sha }}
           title: elgatolight ${{ steps.version.outputs.version }}
           release-dir: dist
           release-notes: Cross-platform elgatolight ${{ steps.version.outputs.version }} binaries and SHA-256 checksums.

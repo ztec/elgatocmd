@@ -405,7 +405,14 @@ Tag pushes run `.forgejo/workflows/release.yaml`, which accepts every existing
 Git tag, runs the same tests, builds all targets, and uploads `dist/` to the
 Forgejo release whose tag and title preserve the exact value. Both jobs use the
 Forgejo runner label `ubuntu-24.04`, matching the deployment runner used by the
-referenced infrastructure project.
+referenced infrastructure project. Release publishing uses override mode, so a
+rerun refreshes the release and its assets for the same tag. Releases are marked
+as pre-releases and their automatically generated source archives are hidden in
+favor of the tested cross-platform artifacts. Override mode leaves the existing
+Git tag unchanged, preserving any annotated tag message created from the release
+title and content. The workflow resolves and passes the selected tag's commit SHA
+explicitly, including for manual dispatches, so the publisher never replaces that
+tag because of the workflow branch's SHA.
 
 ## Protocol notes
 
