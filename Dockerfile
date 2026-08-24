@@ -31,3 +31,4 @@ RUN cd /tmp/elgatolight-module \
 
 ENV PATH="/opt/elgatolight-venv/bin:${PATH}"
 WORKDIR /workspace
+COPY . .

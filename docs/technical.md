@@ -349,12 +349,13 @@ make build  # run all tests and build bin/elgatolight in the box
 ```
 
 `make build` is the default developer target. Python dependencies and Go module
-downloads are cached in the image, while generated binaries remain in the
-mounted project. Each build prints its image, container-entry, static-analysis,
-Go-test, Home Assistant-test, and binary stages. The first image build can take
-several minutes; subsequent builds use the engine cache. Distrobox shares the
-host's `/dev` and supplementary groups, so the udev permission is also
-effective inside the box.
+downloads are cached in the image. Direct container targets copy the checked-out
+source into the image and copy completed binaries or release assets back to the
+working directory, which also supports containerized CI runners. Each build
+prints its image, container-entry, static-analysis, Go-test, Home Assistant-test,
+and binary stages. The first image build can take several minutes; subsequent
+builds use the engine cache. Distrobox shares the host's `/dev` and supplementary
+groups, so the udev permission is also effective inside the box.
 
 The Makefile gives Distrobox an isolated session-bus address while it enters the
 container, then restores the desktop address for the command. This keeps

@@ -76,8 +76,11 @@ def test_distrobox_and_automation_share_the_dockerfile_image() -> None:
 
     assert "golang" in dockerfile
     assert "requirements-dev.txt" in dockerfile
+    assert "COPY . ." in dockerfile
     assert "image=localhost/elgatolight-build:dev" in distrobox
     assert "CONTAINER_ENGINE ?=" in makefile
     assert "DBX_CONTAINER_MANAGER=$(CONTAINER_MANAGER_NAME)" in makefile
     assert "container-test:" in makefile
+    assert '--volume "$(CURDIR):/workspace:Z"' not in makefile
+    assert 'cp "$$container_id:/tmp/elgatolight-release/."' in makefile
     assert "setup:" not in makefile

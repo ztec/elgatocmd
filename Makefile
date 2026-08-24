@@ -10,7 +10,6 @@ HOST_DBUS_SESSION_BUS_ADDRESS := $(DBUS_SESSION_BUS_ADDRESS)
 PODMAN_RUNTIME_ARG := $(if $(shell command -v runc 2>/dev/null),--runtime=runc)
 PODMAN_ARGS := --cgroup-manager=cgroupfs $(PODMAN_RUNTIME_ARG)
 CONTAINER := $(if $(filter podman,$(CONTAINER_MANAGER_NAME)),env DBUS_SESSION_BUS_ADDRESS=unix:path=$(RUNTIME_DIR)/elgatolight-container-no-bus )$(CONTAINER_ENGINE) $(if $(filter podman,$(CONTAINER_MANAGER_NAME)),$(PODMAN_ARGS))
-CONTAINER_USER_ARGS := $(if $(filter podman,$(CONTAINER_MANAGER_NAME)),,--user "$$(id -u):$$(id -g)")
 DISTROBOX := env DBX_CONTAINER_MANAGER=$(CONTAINER_MANAGER_NAME) DBUS_SESSION_BUS_ADDRESS=unix:path=$(RUNTIME_DIR)/elgatolight-distrobox-no-bus distrobox
 RESTORE_HOST_DBUS := env DBUS_SESSION_BUS_ADDRESS='$(HOST_DBUS_SESSION_BUS_ADDRESS)'
 PYTHON := /opt/elgatolight-venv/bin/python
@@ -46,35 +45,39 @@ image: check-container-engine
 
 container-build: image
 	@printf '[container] Running the complete build with %s...\n' "$(CONTAINER_ENGINE)"
-	@$(CONTAINER) run --rm \
-		$(CONTAINER_USER_ARGS) \
-		--env HOME=/tmp/elgatolight-home \
-		--env GOCACHE=/tmp/elgatolight-go-build \
-		--volume "$(CURDIR):/workspace:Z" \
-		--workdir /workspace \
-		"$(BUILD_IMAGE)" make build-in-box
+	@set -eu; \
+		container_id="$$( $(CONTAINER) create \
+			--env HOME=/tmp/elgatolight-home \
+			--env GOCACHE=/tmp/elgatolight-go-build \
+			--workdir /workspace \
+			"$(BUILD_IMAGE)" make build-in-box )"; \
+		cleanup() { $(CONTAINER) rm --force "$$container_id" >/dev/null 2>&1 || true; }; \
+		trap cleanup EXIT HUP INT TERM; \
+		$(CONTAINER) start --attach "$$container_id"; \
+		mkdir -p bin; \
+		$(CONTAINER) cp "$$container_id:/workspace/bin/elgatolight" bin/elgatolight
 
 container-test: image
 	@printf '[container] Running all tests with %s...\n' "$(CONTAINER_ENGINE)"
 	@$(CONTAINER) run --rm \
-		$(CONTAINER_USER_ARGS) \
 		--env HOME=/tmp/elgatolight-home \
 		--env GOCACHE=/tmp/elgatolight-go-build \
-		--volume "$(CURDIR):/workspace:Z" \
 		--workdir /workspace \
 		"$(BUILD_IMAGE)" make test-in-box
 
 release: check-version image
 	@printf '[container] Building release %s with %s...\n' "$(VERSION)" "$(CONTAINER_ENGINE)"
-	@$(CONTAINER) run --rm \
-		$(CONTAINER_USER_ARGS) \
-		--env HOME=/tmp/elgatolight-home \
-		--env GOCACHE=/tmp/elgatolight-go-build \
-		--env VERSION="$(VERSION)" \
-		--env DIST_DIR="$(DIST_DIR)" \
-		--volume "$(CURDIR):/workspace:Z" \
-		--workdir /workspace \
-		"$(BUILD_IMAGE)" make release-in-box VERSION="$(VERSION)" DIST_DIR="$(DIST_DIR)"
+	@set -eu; \
+		container_id="$$( $(CONTAINER) create \
+			--env HOME=/tmp/elgatolight-home \
+			--env GOCACHE=/tmp/elgatolight-go-build \
+			--workdir /workspace \
+			"$(BUILD_IMAGE)" make release-in-box VERSION="$(VERSION)" DIST_DIR=/tmp/elgatolight-release )"; \
+		cleanup() { $(CONTAINER) rm --force "$$container_id" >/dev/null 2>&1 || true; }; \
+		trap cleanup EXIT HUP INT TERM; \
+		$(CONTAINER) start --attach "$$container_id"; \
+		mkdir -p "$(DIST_DIR)"; \
+		$(CONTAINER) cp "$$container_id:/tmp/elgatolight-release/." "$(DIST_DIR)"
 
 box: image
 	@printf '%s\n' '[box] Creating or updating $(BOX)...'
