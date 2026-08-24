@@ -33,6 +33,16 @@ Setup installs the binary and grants the selected user access to the USB light:
 sudo ./elgatolight setup
 ```
 
+The root `install.sh` script automates the download. It queries the Forgejo API
+for the latest stable release and falls back to the latest non-draft
+pre-release. It selects the published archive matching the detected operating
+system and architecture, verifies it against the release checksum file, and
+installs the binary in the interactively selected directory. The default is
+`$HOME/.local/bin` for a regular user and `/usr/local/bin` for root.
+
+Set `ELGATOLIGHT_INSTALL_DIR` to choose the directory without a prompt. Set
+`ELGATOLIGHT_RELEASE_API` to use another compatible Forgejo release API.
+
 Setup must run as root because it writes the udev rule and may create a system
 unit. When invoked through `sudo`, it detects `SUDO_USER` and defaults to that
 login user's `~/.local/bin`. It asks for one of three scopes:

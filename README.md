@@ -8,12 +8,30 @@ The USB controller runs on Linux.
 
 ## Command-line usage
 
-Download the Linux archive for your CPU from the
-[latest release](https://git2.riper.fr/ztec/elgatocmd/releases/latest), extract
-it, then run its self-installer:
+Install the latest release. If only pre-releases are available, the installer
+automatically selects the newest one. It detects your operating system and CPU,
+verifies the download, and asks where to install `elgatolight`.
+
+Install from the primary repository with either `curl` or `wget`:
 
 ```sh
-sudo ./elgatolight setup
+curl -fsSL https://git2.riper.fr/ztec/elgatocmd/raw/branch/main/install.sh | sh
+wget -qO- https://git2.riper.fr/ztec/elgatocmd/raw/branch/main/install.sh | sh
+```
+
+The same installer is mirrored on GitHub:
+
+```sh
+curl -fsSL https://github.com/ztec/elgatocmd/raw/refs/heads/main/install.sh | sh
+wget -qO- https://github.com/ztec/elgatocmd/raw/refs/heads/main/install.sh | sh
+```
+
+The default install directory is `~/.local/bin`, or `/usr/local/bin` when the
+installer runs as root. After installation, run the setup command printed by
+the installer:
+
+```sh
+sudo ~/.local/bin/elgatolight setup
 ```
 
 Choose the `cli` scope for command-line use. Setup installs the binary in
@@ -57,12 +75,10 @@ First install the integration:
 4. Open **Settings → Devices & services → Add integration** and add
    **Elgato USB Light Bridge**.
 
-Then download the Linux archive from the
-[latest release](https://git2.riper.fr/ztec/elgatocmd/releases/latest), extract
-it on the computer connected to the light, and run:
+Then use the installer above on the computer connected to the light and run:
 
 ```sh
-sudo ./elgatolight setup
+sudo ~/.local/bin/elgatolight setup
 ```
 
 Choose `user` to start the daemon whenever that user logs in, or `system` to
