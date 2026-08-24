@@ -14,14 +14,23 @@ from homeassistant.exceptions import Unauthorized
 from homeassistant.setup import async_setup_component
 
 from custom_components.elgatolight.bridge import BridgeHub, websocket_info
+from custom_components.elgatolight.button import (
+    ElgatoPresetButton,
+    async_setup_entry as async_setup_button_entry,
+)
 from custom_components.elgatolight.const import (
     DOMAIN,
     PROTOCOL_VERSION,
+    WS_DEVICE_CONNECTED,
     WS_INFO,
     WS_DEVICE_DISCONNECTED,
     WS_STATE,
 )
 from custom_components.elgatolight.light import ElgatoBridgeLight
+from custom_components.elgatolight.scene import (
+    ElgatoPresetScene,
+    async_setup_entry as async_setup_scene_entry,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -98,6 +107,7 @@ async def test_cross_language_protocol_fixture(hass) -> None:
         "brightness": 32,
         "temperature": 4500,
     }
+    assert messages["presetCommand"]["preset"] == 2
     assert messages["commandResult"]["requestId"] == messages["command"]["requestId"]
     assert messages["resync"]["event"] == "resync"
 
@@ -272,6 +282,110 @@ async def test_entity_command_is_correlated_and_scales_brightness(hass) -> None:
     )
     await command_task
     assert hub.device(DEVICE["id"])["state"] == updated["state"]
+
+
+async def test_preset_scene_and_button_recall_hardware_slots(hass) -> None:
+    """Both HA representations send preset actions and apply returned state."""
+    hub = BridgeHub(hass)
+    await hub.async_load()
+    connection = FakeConnection()
+    await hub.async_register(connection, 33, subscription())
+
+    button = ElgatoPresetButton(hub, DEVICE["id"], 1)
+    scene = ElgatoPresetScene(hub, DEVICE["id"], 2)
+    assert button.unique_id == f"{DEVICE['id']}_preset_1_button"
+    assert scene.unique_id == f"{DEVICE['id']}_preset_2_scene"
+    assert button.translation_key == "preset_1"
+    assert scene.translation_key == "preset_2"
+    assert button.device_info["identifiers"] == {(DOMAIN, DEVICE["id"])}
+    assert scene.device_info["identifiers"] == {(DOMAIN, DEVICE["id"])}
+    assert button.available is True
+    assert scene.available is True
+
+    for entity, preset, brightness in ((button, 1, 25), (scene, 2, 65)):
+        if isinstance(entity, ElgatoPresetButton):
+            command_task = asyncio.create_task(entity.async_press())
+        else:
+            command_task = asyncio.create_task(entity.async_activate())
+        await asyncio.sleep(0)
+        subscription_id, command = connection.events.pop()
+        assert subscription_id == 33
+        assert command["event"] == "command"
+        assert command["deviceId"] == DEVICE["id"]
+        assert command["preset"] == preset
+        assert "update" not in command
+
+        updated = dict(DEVICE)
+        updated["state"] = {
+            "on": True,
+            "brightness": brightness,
+            "temperature": 3000 + preset * 500,
+        }
+        await hub.async_command_result(
+            connection,
+            {
+                "instanceId": "daemon-1",
+                "epoch": "epoch-1",
+                "requestId": command["requestId"],
+                "success": True,
+                "light": updated,
+            },
+        )
+        await command_task
+        assert hub.device(DEVICE["id"])["state"] == updated["state"]
+
+    with pytest.raises(HomeAssistantError, match="preset must be 1 or 2"):
+        await hub.async_apply_preset(DEVICE["id"], 3)
+
+
+async def test_preset_platforms_follow_dynamic_inventory(hass) -> None:
+    """Preset platforms create both entities for retained and newly found lights."""
+    hub = BridgeHub(hass)
+    await hub.async_load()
+    connection = FakeConnection()
+    await hub.async_register(connection, 34, subscription())
+
+    unloads = []
+    entry = SimpleNamespace(runtime_data=hub, async_on_unload=unloads.append)
+    buttons = []
+    scenes = []
+    await async_setup_button_entry(hass, entry, buttons.extend)
+    await async_setup_scene_entry(hass, entry, scenes.extend)
+
+    assert {entity.unique_id for entity in buttons} == {
+        f"{DEVICE['id']}_preset_1_button",
+        f"{DEVICE['id']}_preset_2_button",
+    }
+    assert {entity.unique_id for entity in scenes} == {
+        f"{DEVICE['id']}_preset_1_scene",
+        f"{DEVICE['id']}_preset_2_scene",
+    }
+
+    second_device = {**DEVICE, "id": "SERIAL-B", "name": "Second light"}
+    await hub.async_apply_state(
+        connection,
+        {
+            "type": WS_DEVICE_CONNECTED,
+            "instanceId": "daemon-1",
+            "epoch": "epoch-1",
+            "sequence": 1,
+            "light": second_device,
+        },
+    )
+
+    assert len(buttons) == 4
+    assert len(scenes) == 4
+    assert {entity.unique_id for entity in buttons if "SERIAL-B" in entity.unique_id} == {
+        "SERIAL-B_preset_1_button",
+        "SERIAL-B_preset_2_button",
+    }
+    assert {entity.unique_id for entity in scenes if "SERIAL-B" in entity.unique_id} == {
+        "SERIAL-B_preset_1_scene",
+        "SERIAL-B_preset_2_scene",
+    }
+
+    for unload in unloads:
+        unload()
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,7 @@ type DeviceClient interface {
 	Status(context.Context) (elgato.Status, error)
 	AccessoryInfo(context.Context) (elgato.AccessoryInfo, error)
 	Update(context.Context, elgato.Update) (elgato.Status, error)
+	ApplyPreset(context.Context, int) (elgato.Status, error)
 }
 
 // Finder discovers the currently connected supported USB devices.
@@ -179,6 +180,18 @@ func (m *Manager) Update(ctx context.Context, id string, update Update) (Light, 
 	return worker.update(ctx, update)
 }
 
+// ApplyPreset recalls one of the two presets currently stored on a connected
+// light. The operation shares the worker queue with polling and state updates.
+func (m *Manager) ApplyPreset(ctx context.Context, id string, preset int) (Light, error) {
+	m.mu.RLock()
+	worker := m.workers[id]
+	m.mu.RUnlock()
+	if worker == nil {
+		return Light{}, fmt.Errorf("light %q is not connected", id)
+	}
+	return worker.applyPreset(ctx, preset)
+}
+
 func (m *Manager) reconcile(ctx context.Context) error {
 	devices, err := m.config.Find()
 	if err != nil {
@@ -252,13 +265,14 @@ func (m *Manager) record(ctx context.Context, eventType EventType, source EventS
 	}
 }
 
-type updateRequest struct {
+type operationRequest struct {
 	ctx      context.Context
-	update   Update
-	response chan updateResponse
+	update   *Update
+	preset   int
+	response chan operationResponse
 }
 
-type updateResponse struct {
+type operationResponse struct {
 	light Light
 	err   error
 }
@@ -270,7 +284,7 @@ type worker struct {
 
 	mu       sync.RWMutex
 	light    Light
-	requests chan updateRequest
+	requests chan operationRequest
 	cancel   context.CancelFunc
 	done     chan struct{}
 	ready    chan struct{}
@@ -286,7 +300,7 @@ func newWorker(manager *Manager, device hidraw.Device, client DeviceClient) *wor
 			Manufacturer: "Elgato", Model: "Key Light Neo",
 			Capabilities: Capabilities{MinBrightness: 0, MaxBrightness: 100, MinKelvin: elgato.MinKelvin, MaxKelvin: elgato.MaxKelvin},
 		},
-		requests: make(chan updateRequest),
+		requests: make(chan operationRequest),
 		done:     make(chan struct{}),
 		ready:    make(chan struct{}),
 	}
@@ -312,8 +326,18 @@ func (w *worker) snapshot() Light {
 }
 
 func (w *worker) update(ctx context.Context, update Update) (Light, error) {
-	response := make(chan updateResponse, 1)
-	request := updateRequest{ctx: ctx, update: update, response: response}
+	response := make(chan operationResponse, 1)
+	request := operationRequest{ctx: ctx, update: &update, response: response}
+	return w.request(ctx, request, response)
+}
+
+func (w *worker) applyPreset(ctx context.Context, preset int) (Light, error) {
+	response := make(chan operationResponse, 1)
+	request := operationRequest{ctx: ctx, preset: preset, response: response}
+	return w.request(ctx, request, response)
+}
+
+func (w *worker) request(ctx context.Context, request operationRequest, response <-chan operationResponse) (Light, error) {
 	select {
 	case w.requests <- request:
 	case <-ctx.Done():
@@ -342,8 +366,14 @@ func (w *worker) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case request := <-w.requests:
-			light, err := w.apply(request.ctx, request.update)
-			request.response <- updateResponse{light: light, err: err}
+			var light Light
+			var err error
+			if request.update != nil {
+				light, err = w.apply(request.ctx, *request.update)
+			} else {
+				light, err = w.recallPreset(request.ctx, request.preset)
+			}
+			request.response <- operationResponse{light: light, err: err}
 		case <-ticker.C:
 			w.poll(ctx)
 		}
@@ -412,6 +442,29 @@ func (w *worker) apply(ctx context.Context, update Update) (Light, error) {
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, w.manager.config.RequestTimeout)
 	status, err := w.client.Update(requestCtx, elgato.Update{On: update.On, Brightness: update.Brightness, Temperature: update.Temperature})
+	cancel()
+	if err != nil {
+		return current, err
+	}
+	state, err := stateFromStatus(status)
+	if err != nil {
+		return current, err
+	}
+	current.Available = true
+	current.Error = ""
+	current.State = state
+	w.set(current)
+	w.manager.record(ctx, EventStateChanged, EventSourceUpdate, current)
+	return current, nil
+}
+
+func (w *worker) recallPreset(ctx context.Context, preset int) (Light, error) {
+	current := w.snapshot()
+	if preset < 1 || preset > 2 {
+		return current, errors.New("preset must be 1 or 2")
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, w.manager.config.RequestTimeout)
+	status, err := w.client.ApplyPreset(requestCtx, preset)
 	cancel()
 	if err != nil {
 		return current, err

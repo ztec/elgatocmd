@@ -15,6 +15,7 @@ information for `elgatolight`. For basic setup, start with the
 - Log initial state, physical changes, and hotplug changes as JSON Lines.
 - Push state, physical control changes, and availability to Home Assistant.
 - Receive Home Assistant light commands over a daemon-initiated connection.
+- Recall either hardware preset through Home Assistant scenes and buttons.
 
 The two hardware preset buttons store brightness/temperature combinations. The
 USB settings endpoint exposes both slots as favourites, so the CLI can list and
@@ -215,10 +216,19 @@ The daemon establishes an authenticated WebSocket connection to the configured
 Home Assistant URL. It can move between hosts or networks while retaining that
 outbound reachability. Pairing uses a temporary loopback OAuth callback.
 
-The custom integration creates one native Home Assistant device and light
-entity per stable USB serial. It supports power, brightness, color temperature,
-availability, hotplug, physical control changes, and dynamic addition of more
-lights. State changes are pushed to Home Assistant in real time.
+The custom integration creates one native Home Assistant device per stable USB
+serial, with a light entity, two preset scenes, and two preset buttons. It
+supports power, brightness, color temperature, availability, hotplug, physical
+control changes, and dynamic addition of more lights. State changes are pushed
+to Home Assistant in real time.
+
+`Preset 1` and `Preset 2` scenes work with dashboards, automations, scripts, and
+Home Assistant's `scene.turn_on` action. The matching buttons provide direct
+`button.press` actions. Both representations recall the same slots and always
+use the values currently stored in the physical light. Edit a slot by adjusting
+the light and holding its corresponding physical preset button for three
+seconds; every scene and button that represents that slot uses the new values
+the next time it is activated.
 
 ### HACS installation
 
@@ -231,7 +241,16 @@ lights. State changes are pushed to Home Assistant in real time.
 
 The Home Assistant integration uses a one-click configuration entry. The daemon
 receives its Home Assistant URL during `elgatolight setup`. HACS installs the
-integration from the repository's published version or default branch.
+integration from the GitHub mirror's published version or default branch. Home
+Assistant 2026.3 and newer automatically displays the product image bundled in
+`custom_components/elgatolight/brand/icon.png`; each light entity uses the
+square-panel `mdi:television-ambient-light` icon.
+
+When the GitHub mirror has no GitHub Releases, HACS tracks its default branch
+using the latest commit revision. Pushing a new default-branch commit therefore
+makes that revision available to HACS. Publishing a full GitHub Release makes
+its tag the named HACS version; a mirrored Git tag or Forgejo release alone does
+not create a GitHub Release.
 
 ### Manual installation
 
@@ -331,16 +350,18 @@ journalctl --user -u elgatolight.service -f
 For a system service, use `systemctl status elgatolight.service` and
 `journalctl -u elgatolight.service -f`. Action lines identify their origin as
 `source=light` for physical controls or `source=home_assistant` for Home
-Assistant commands. They include the stable light ID, changed/requested values,
-the authoritative resulting state, and command errors. Device connection,
-disconnection, and availability changes are logged as lifecycle events.
-Unchanged USB polls are not logged.
+Assistant commands. They include the stable light ID, changed/requested values
+or requested preset, the authoritative resulting state, and command errors.
+Device connection, disconnection, and availability changes are logged as
+lifecycle events. Unchanged USB polls are not logged.
 
 ### Upgrade, move, and removal
 
 To upgrade the Home Assistant side, download the update in HACS and restart
 Home Assistant. For manual installations, update the clone and copy the custom
 component into the persistent configuration volume again before restarting.
+Preset entities use bridge protocol version 2, so update the integration and
+daemon together when upgrading from an earlier release.
 To upgrade the daemon, run `elgatolight self-update` as the account that owns
 the executable, adding sudo for a system-owned installation, then restart the
 matching service. Running the download installer again remains useful when
@@ -476,12 +497,14 @@ through `GET /elgato/lights`; the daemon and monitor commands poll this endpoint
 Linux exposes the hardware serial as `HID_UNIQ`, which is used as the stable
 device and Home Assistant entity ID.
 
-The Home Assistant side exposes authenticated custom WebSocket commands under
-the `elgatolight/` namespace. The daemon authenticates with a short-lived access
-token obtained from a revocable OAuth refresh token, then retains the
-`elgatolight/subscribe` command as the server-to-daemon command channel. These
-bridge commands require an administrator token; ordinary entity access remains
-subject to Home Assistant's normal permissions.
+The Home Assistant side exposes bridge protocol version 2 as authenticated
+custom WebSocket commands under the `elgatolight/` namespace. The daemon
+authenticates with a short-lived access token obtained from a revocable OAuth
+refresh token, then retains the `elgatolight/subscribe` command as the
+server-to-daemon command channel. A command carries exactly one operation: a
+partial light update or a hardware preset number. These bridge commands require
+an administrator token; ordinary entity access remains subject to Home
+Assistant's normal permissions.
 
 The USB implementation was cross-checked against the independent
 [Key Light Neo USB protocol analysis](https://zameermanji.com/blog/2026/3/4/elgato-key-light-neo-usb-protocol/).

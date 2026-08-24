@@ -50,6 +50,13 @@ func TestCrossLanguageProtocolFixture(t *testing.T) {
 	if command.Event != "command" || command.Update.Brightness == nil || *command.Update.Brightness != 32 {
 		t.Fatalf("unexpected command fixture: %#v", command)
 	}
+	var presetCommand SubscriptionEvent
+	if err := json.Unmarshal(fixture.Messages["presetCommand"], &presetCommand); err != nil {
+		t.Fatal(err)
+	}
+	if presetCommand.Event != "command" || presetCommand.Preset == nil || *presetCommand.Preset != 2 {
+		t.Fatalf("unexpected preset command fixture: %#v", presetCommand)
+	}
 	var result CommandResult
 	if err := json.Unmarshal(fixture.Messages["commandResult"], &result); err != nil {
 		t.Fatal(err)

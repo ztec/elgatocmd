@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 
 
@@ -27,9 +28,23 @@ def test_hacs_layout_and_manifest() -> None:
     assert manifest["single_config_entry"] is True
     assert manifest["iot_class"] == "local_push"
     assert manifest["integration_type"] == "hub"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.2.0"
     for key in ("name", "codeowners", "documentation", "issue_tracker"):
         assert manifest[key]
+
+    brand_icon = component_root / "elgatolight" / "brand" / "icon.png"
+    icon = brand_icon.read_bytes()
+    assert icon[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height, _depth, color_type, _compression, _filter, _interlace = (
+        struct.unpack(">IIBBBBB", icon[16:29])
+    )
+    assert width == height == 256
+    assert color_type in (4, 6)
+
+    light_platform = (component_root / "elgatolight" / "light.py").read_text(
+        encoding="utf-8"
+    )
+    assert '_attr_icon = "mdi:television-ambient-light"' in light_platform
 
 
 def test_published_repository_metadata() -> None:

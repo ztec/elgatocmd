@@ -4,7 +4,7 @@ package homeassistant
 
 import "elgatolight/internal/lights"
 
-const ProtocolVersion = 1
+const ProtocolVersion = 2
 
 const (
 	TypeInfo               = "elgatolight/info"
@@ -62,5 +62,6 @@ type SubscriptionEvent struct {
 	RequestID string        `json:"requestId,omitempty"`
 	DeviceID  string        `json:"deviceId,omitempty"`
 	Update    lights.Update `json:"update,omitempty"`
+	Preset    *int          `json:"preset,omitempty"`
 	Reason    string        `json:"reason,omitempty"`
 }

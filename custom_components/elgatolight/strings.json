@@ -9,5 +9,23 @@
         "title": "Enable Elgato USB Light Bridge"
       }
     }
+  },
+  "entity": {
+    "button": {
+      "preset_1": {
+        "name": "Preset 1"
+      },
+      "preset_2": {
+        "name": "Preset 2"
+      }
+    },
+    "scene": {
+      "preset_1": {
+        "name": "Preset 1"
+      },
+      "preset_2": {
+        "name": "Preset 2"
+      }
+    }
   }
 }

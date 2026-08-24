@@ -1,9 +1,9 @@
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "messages": {
     "subscribe": {
       "type": "elgatolight/subscribe",
-      "protocolVersion": 1,
+      "protocolVersion": 2,
       "instanceId": "daemon-fixture",
       "epoch": "epoch-fixture",
       "sequence": 41,
@@ -76,6 +76,12 @@
         "brightness": 32,
         "temperature": 4500
       }
+    },
+    "presetCommand": {
+      "event": "command",
+      "requestId": "preset-request-fixture",
+      "deviceId": "SERIAL-FIXTURE",
+      "preset": 2
     },
     "commandResult": {
       "type": "elgatolight/command_result",

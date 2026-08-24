@@ -71,9 +71,9 @@ a system-owned directory, then restart any running daemon service.
 
 ## Home Assistant usage
 
-The included Home Assistant integration receives live light state from the
-daemon and sends light commands back through the same connection. Setup needs
-the Home Assistant URL.
+The included Home Assistant integration receives live state and sends light or stored-preset
+commands. Each light gets two scenes, two buttons, and a square-panel icon.
+Home Assistant 2026.3+ also shows the bundled product image. Setup needs the Home Assistant URL.
 
 <table>
   <tr><td width="50%"><img src="docs/Elgato%20bridge.png" alt="Elgato USB Light Bridge device page in Home Assistant" width="100%"></td><td width="50%"><img src="docs/Elgato%20light%20control.png" alt="Elgato Key Light controls while switched off in Home Assistant" width="100%"><br><img src="docs/Elgato%20light%20control-2.png" alt="Elgato Key Light controls while switched on at 65 percent in Home Assistant" width="100%"></td></tr>

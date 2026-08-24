@@ -25,10 +25,16 @@ func (errorDeviceClient) Update(context.Context, elgato.Update) (elgato.Status, 
 	return elgato.Status{}, errors.New("USB write failed")
 }
 
+func (errorDeviceClient) ApplyPreset(context.Context, int) (elgato.Status, error) {
+	return elgato.Status{}, errors.New("USB preset failed")
+}
+
 type fakeDeviceClient struct {
-	mu     sync.Mutex
-	status elgato.Status
-	info   elgato.AccessoryInfo
+	mu             sync.Mutex
+	status         elgato.Status
+	info           elgato.AccessoryInfo
+	presets        map[int]elgato.Light
+	appliedPresets []int
 }
 
 func (f *fakeDeviceClient) Status(context.Context) (elgato.Status, error) {
@@ -65,6 +71,18 @@ func (f *fakeDeviceClient) Update(_ context.Context, update elgato.Update) (elga
 	return f.status, nil
 }
 
+func (f *fakeDeviceClient) ApplyPreset(_ context.Context, preset int) (elgato.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	light, ok := f.presets[preset]
+	if !ok {
+		return elgato.Status{}, errors.New("preset is not available")
+	}
+	f.appliedPresets = append(f.appliedPresets, preset)
+	f.status.Lights[0] = light
+	return f.status, nil
+}
+
 func (f *fakeDeviceClient) setBrightness(value int) {
 	f.mu.Lock()
 	f.status.Lights[0].Brightness = value
@@ -77,6 +95,9 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 	client := &fakeDeviceClient{
 		status: elgato.Status{NumberOfLights: 1, Lights: []elgato.Light{{On: 0, Brightness: 10, Temperature: 200}}},
 		info:   elgato.AccessoryInfo{ProductName: "Key Light Neo", FirmwareVersion: "2.0", PowerInfo: elgato.PowerInfo{MaximumBrightness: 40}},
+		presets: map[int]elgato.Light{
+			2: {On: 1, Brightness: 22, Temperature: 222},
+		},
 	}
 	manager, err := NewManager(Config{
 		PollInterval: 10 * time.Millisecond, ReconcileInterval: 10 * time.Millisecond, RequestTimeout: time.Second,
@@ -123,6 +144,27 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 		t.Fatalf("changed event = %#v", changed)
 	}
 
+	recalled, err := manager.ApplyPreset(ctx, "SERIAL-A", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recalled.State.On || recalled.State.Brightness != 22 || recalled.State.Temperature != elgato.MiredToKelvin(222) {
+		t.Fatalf("recalled preset = %#v", recalled)
+	}
+	presetChanged := waitEvent(t, events, EventStateChanged)
+	if presetChanged.Source != EventSourceUpdate || presetChanged.Sequence <= changed.Sequence || presetChanged.Light.State.Brightness != 22 {
+		t.Fatalf("preset event = %#v", presetChanged)
+	}
+	client.mu.Lock()
+	applied := append([]int(nil), client.appliedPresets...)
+	client.mu.Unlock()
+	if len(applied) != 1 || applied[0] != 2 {
+		t.Fatalf("applied presets = %v", applied)
+	}
+	if _, err := manager.ApplyPreset(ctx, "SERIAL-A", 3); err == nil || err.Error() != "preset must be 1 or 2" {
+		t.Fatalf("invalid preset error = %v", err)
+	}
+
 	tooHigh := 41
 	if _, err := manager.Update(ctx, "SERIAL-A", Update{Brightness: &tooHigh}); err == nil {
 		t.Fatal("device maximum brightness was not enforced")
@@ -132,8 +174,8 @@ func TestManagerLifecycleAndAtomicUpdate(t *testing.T) {
 	physical := waitEventMatching(t, events, func(event Event) bool {
 		return event.Type == EventStateChanged && event.Light.State.Brightness == 15
 	})
-	if physical.Source != EventSourceLight || physical.Sequence <= changed.Sequence {
-		t.Fatalf("physical sequence = %d after %d", physical.Sequence, changed.Sequence)
+	if physical.Source != EventSourceLight || physical.Sequence <= presetChanged.Sequence {
+		t.Fatalf("physical sequence = %d after %d", physical.Sequence, presetChanged.Sequence)
 	}
 
 	discoveryMu.Lock()

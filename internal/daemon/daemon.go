@@ -252,8 +252,19 @@ func handleCommand(ctx context.Context, config Config, client *homeassistant.Web
 	if command.RequestID == "" || command.DeviceID == "" {
 		return errors.New("Home Assistant sent an incomplete light command")
 	}
+	hasUpdate := command.Update.On != nil || command.Update.Brightness != nil || command.Update.Temperature != nil
+	hasPreset := command.Preset != nil
+	if hasUpdate == hasPreset {
+		return errors.New("Home Assistant light command must contain exactly one update or preset")
+	}
 	commandCtx, cancel := context.WithTimeout(ctx, config.CallTimeout)
-	light, updateErr := config.Manager.Update(commandCtx, command.DeviceID, command.Update)
+	var light lights.Light
+	var updateErr error
+	if hasPreset {
+		light, updateErr = config.Manager.ApplyPreset(commandCtx, command.DeviceID, *command.Preset)
+	} else {
+		light, updateErr = config.Manager.Update(commandCtx, command.DeviceID, command.Update)
+	}
 	cancel()
 	result := homeassistant.CommandResult{
 		Type: homeassistant.TypeCommandResult, InstanceID: config.Credentials.InstanceID,
@@ -301,7 +312,7 @@ func logConnectedLight(config Config, light lights.Light) {
 }
 
 func logHomeAssistantAction(config Config, command homeassistant.SubscriptionEvent, light lights.Light, actionErr error) {
-	fields := formatUpdate(command.Update)
+	fields := formatRequestedAction(command)
 	if actionErr != nil {
 		config.Logf("action source=home_assistant light=%q request=%q %s result=error error=%q",
 			command.DeviceID, command.RequestID, fields, actionErr)
@@ -309,6 +320,13 @@ func logHomeAssistantAction(config Config, command homeassistant.SubscriptionEve
 	}
 	config.Logf("action source=home_assistant light=%q request=%q %s result=success %s",
 		command.DeviceID, command.RequestID, fields, formatState(light.State))
+}
+
+func formatRequestedAction(command homeassistant.SubscriptionEvent) string {
+	if command.Preset != nil {
+		return fmt.Sprintf("requested_preset=%d", *command.Preset)
+	}
+	return formatUpdate(command.Update)
 }
 
 func formatUpdate(update lights.Update) string {

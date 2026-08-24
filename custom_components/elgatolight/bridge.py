@@ -261,7 +261,19 @@ class BridgeHub:
             future.set_exception(HomeAssistantError(msg.get("error") or "light command failed"))
 
     async def async_command(self, device_id: str, update: dict[str, Any]) -> None:
-        """Send a light action over the daemon-initiated subscription."""
+        """Send a partial light update over the daemon subscription."""
+        await self._async_command(device_id, {"update": update})
+
+    async def async_apply_preset(self, device_id: str, preset: int) -> None:
+        """Recall one of the two presets stored on the physical light."""
+        if preset not in (1, 2):
+            raise HomeAssistantError("Elgato light preset must be 1 or 2")
+        await self._async_command(device_id, {"preset": preset})
+
+    async def _async_command(
+        self, device_id: str, operation: dict[str, Any]
+    ) -> None:
+        """Send one validated operation over the daemon-initiated subscription."""
         device = self._devices.get(device_id)
         if device is None:
             raise HomeAssistantError(f"Unknown Elgato light {device_id}")
@@ -278,7 +290,7 @@ class BridgeHub:
                 "event": "command",
                 "requestId": request_id,
                 "deviceId": device_id,
-                "update": update,
+                **operation,
             },
         )
         try:

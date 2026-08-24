@@ -4,7 +4,7 @@ from typing import Final
 
 DOMAIN: Final = "elgatolight"
 INTEGRATION_NAME: Final = "Elgato USB Light Bridge"
-PROTOCOL_VERSION: Final = 1
+PROTOCOL_VERSION: Final = 2
 STORAGE_KEY: Final = f"{DOMAIN}.devices"
 STORAGE_VERSION: Final = 1
 COMMAND_TIMEOUT: Final = 10.0

@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from .bridge import BridgeHub, async_register_websocket_api
 from .const import DOMAIN
 
-PLATFORMS = [Platform.LIGHT]
+PLATFORMS = [Platform.LIGHT, Platform.BUTTON, Platform.SCENE]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

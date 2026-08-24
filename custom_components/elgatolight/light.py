@@ -16,7 +16,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .bridge import BridgeHub
-from .const import DOMAIN
+from .entity import bridge_device_info
 
 
 async def async_setup_entry(
@@ -45,6 +45,7 @@ class ElgatoBridgeLight(LightEntity):
 
     _attr_color_mode = ColorMode.COLOR_TEMP
     _attr_has_entity_name = True
+    _attr_icon = "mdi:television-ambient-light"
     _attr_name = None
     _attr_should_poll = False
     _attr_supported_color_modes = {ColorMode.COLOR_TEMP}
@@ -59,14 +60,7 @@ class ElgatoBridgeLight(LightEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return stable device-registry metadata."""
-        device = self._hub.device(self._device_id) or {}
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            manufacturer=device.get("manufacturer", "Elgato"),
-            model=device.get("model", "Key Light Neo"),
-            name=device.get("name", "Elgato Key Light Neo"),
-            sw_version=device.get("firmware") or None,
-        )
+        return bridge_device_info(self._hub, self._device_id)
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to push state for this light."""

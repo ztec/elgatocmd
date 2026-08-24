@@ -71,6 +71,20 @@ func (f *bridgeFakeLight) Update(_ context.Context, update elgato.Update) (elgat
 	return f.status, nil
 }
 
+func (f *bridgeFakeLight) ApplyPreset(_ context.Context, preset int) (elgato.Status, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if preset != 2 {
+		return elgato.Status{}, fmt.Errorf("unexpected preset %d", preset)
+	}
+	temperature, err := elgato.KelvinToMired(3000)
+	if err != nil {
+		return elgato.Status{}, err
+	}
+	f.status.Lights[0] = elgato.Light{On: 1, Brightness: 65, Temperature: temperature}
+	return f.status, nil
+}
+
 func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 	physical := &bridgeFakeLight{status: elgato.Status{
 		NumberOfLights: 1,
@@ -146,7 +160,7 @@ func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 	physical.mu.Lock()
 	state := physical.status.Lights[0]
 	physical.mu.Unlock()
-	if state.On != 1 || state.Brightness != 50 || elgato.MiredToKelvin(state.Temperature) != 4505 {
+	if state.On != 1 || state.Brightness != 65 || elgato.MiredToKelvin(state.Temperature) != 3003 {
 		t.Fatalf("physical state after HA command = %#v", state)
 	}
 	logMu.Lock()
@@ -156,6 +170,8 @@ func TestDaemonPublishesSnapshotAndHandlesHACommand(t *testing.T) {
 		`action source=home_assistant light="SERIAL-A" request="request-1"`,
 		"requested_on=true", "requested_brightness=50", "requested_temperature=4500K",
 		"result=success", "on=true", "brightness=50", "temperature=4505K",
+		`action source=home_assistant light="SERIAL-A" request="request-2" requested_preset=2`,
+		"on=true brightness=65 temperature=3003K",
 	} {
 		if !strings.Contains(output, field) {
 			t.Errorf("daemon log omitted %q:\n%s", field, output)
@@ -199,6 +215,23 @@ func TestActionLoggingDistinguishesPhysicalAndUpdateEvents(t *testing.T) {
 	} {
 		if !strings.Contains(got, field) {
 			t.Errorf("failed HA action log omitted %q: %s", field, got)
+		}
+	}
+}
+
+func TestHandleCommandRejectsMissingOrAmbiguousOperation(t *testing.T) {
+	brightness := 50
+	preset := 1
+	for _, command := range []homeassistant.SubscriptionEvent{
+		{RequestID: "request-empty", DeviceID: "SERIAL-A"},
+		{
+			RequestID: "request-ambiguous", DeviceID: "SERIAL-A", Preset: &preset,
+			Update: lights.Update{Brightness: &brightness},
+		},
+	} {
+		err := handleCommand(context.Background(), Config{}, nil, "epoch", command)
+		if err == nil || !strings.Contains(err.Error(), "exactly one update or preset") {
+			t.Fatalf("operation validation error = %v", err)
 		}
 	}
 }
@@ -263,7 +296,36 @@ func serveDaemonTestBridge(ctx context.Context, connection *websocket.Conn) erro
 	if commandResult["success"] != true || commandResult["requestId"] != "request-1" {
 		return fmt.Errorf("unexpected command result: %#v", commandResult)
 	}
-	return resultFor(ctx, connection, commandResult, nil)
+	if err := resultFor(ctx, connection, commandResult, nil); err != nil {
+		return err
+	}
+	if err := wsjson.Write(ctx, connection, map[string]any{
+		"id": subscriptionID, "type": "event",
+		"event": map[string]any{
+			"event": "command", "requestId": "request-2", "deviceId": "SERIAL-A", "preset": 2,
+		},
+	}); err != nil {
+		return err
+	}
+	for {
+		command, err := readDaemonCommand(ctx, connection, "")
+		if err != nil {
+			return err
+		}
+		switch command["type"] {
+		case homeassistant.TypeState:
+			if err := resultFor(ctx, connection, command, nil); err != nil {
+				return err
+			}
+		case homeassistant.TypeCommandResult:
+			if command["success"] != true || command["requestId"] != "request-2" {
+				return fmt.Errorf("unexpected preset command result: %#v", command)
+			}
+			return resultFor(ctx, connection, command, nil)
+		default:
+			return fmt.Errorf("unexpected command while waiting for preset result: %#v", command)
+		}
+	}
 }
 
 func readDaemonCommand(ctx context.Context, connection *websocket.Conn, wantType string) (map[string]any, error) {
@@ -271,7 +333,7 @@ func readDaemonCommand(ctx context.Context, connection *websocket.Conn, wantType
 	if err := wsjson.Read(ctx, connection, &command); err != nil {
 		return nil, err
 	}
-	if command["type"] != wantType {
+	if wantType != "" && command["type"] != wantType {
 		return nil, fmt.Errorf("command type = %v, want %s: %#v", command["type"], wantType, command)
 	}
 	return command, nil
