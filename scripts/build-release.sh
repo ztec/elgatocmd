@@ -2,20 +2,36 @@
 
 set -eu
 
-version=${VERSION:-${1:-}}
+version_file=${VERSION_FILE:-}
+if [ -n "$version_file" ]; then
+	if [ ! -s "$version_file" ]; then
+		printf 'error: VERSION_FILE must name a non-empty readable file: %s\n' "$version_file" >&2
+		exit 2
+	fi
+	version=$(cat "$version_file")
+else
+	version=${VERSION:-${1:-}}
+fi
 dist_dir=${DIST_DIR:-dist}
 
-if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+$'; then
-	printf 'error: VERSION must match MAJOR.MINOR exactly (for example 1.2); got %s\n' "${version:-<empty>}" >&2
+if [ -z "$version" ]; then
+	printf '%s\n' 'error: VERSION must contain the exact non-empty release tag' >&2
 	exit 2
 fi
+
+# Git tags may contain path separators or punctuation that is inconvenient in
+# an archive filename. Keep the exact tag inside the binary and Forgejo release,
+# and use this stable filesystem-safe form only for artifact names.
+artifact_version=$(printf '%s' "$version" | sed 's/[^A-Za-z0-9._+-]/-/g')
+
+printf '[release] Packaging exact tag %s...\n' "$version"
 
 mkdir -p "$dist_dir"
 stage_root=$(mktemp -d "$dist_dir/.elgatolight-release.XXXXXX")
 trap 'rm -rf "$stage_root"' EXIT HUP INT TERM
 
 ldflags="-s -w -X elgatolight/internal/buildinfo.Version=$version"
-checksums="$dist_dir/elgatolight-$version-checksums.txt"
+checksums="$dist_dir/elgatolight-$artifact_version-checksums.txt"
 rm -f "$checksums"
 
 build_target() {
@@ -26,7 +42,7 @@ build_target() {
 	format=$5
 	extension=$6
 
-	name="elgatolight-$version-$label"
+	name="elgatolight-$artifact_version-$label"
 	package_dir="$stage_root/$name"
 	mkdir -p "$package_dir"
 
@@ -62,7 +78,7 @@ build_target windows arm64 "" windows-arm64 zip .exe
 build_target darwin amd64 "" darwin-amd64 tar ""
 build_target darwin arm64 "" darwin-arm64 tar ""
 
-native="$stage_root/elgatolight-$version-linux-amd64/elgatolight"
+native="$stage_root/elgatolight-$artifact_version-linux-amd64/elgatolight"
 actual=$("$native" --version)
 if [ "$actual" != "$version" ]; then
 	printf 'error: native binary reports version %s, expected %s\n' "$actual" "$version" >&2

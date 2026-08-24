@@ -15,6 +15,7 @@ RESTORE_HOST_DBUS := env DBUS_SESSION_BUS_ADDRESS='$(HOST_DBUS_SESSION_BUS_ADDRE
 PYTHON := /opt/elgatolight-venv/bin/python
 DEV_ARGS ?= watch
 VERSION ?=
+VERSION_FILE ?=
 DIST_DIR ?= dist
 
 .PHONY: build image container-build container-test release box shell dev build-in-box release-in-box test-in-box test-go-in-box test-python-in-box check-container-engine check-version
@@ -34,8 +35,13 @@ check-container-engine:
 	fi
 
 check-version:
-	@if ! printf '%s\n' "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+$$'; then \
-		printf 'error: VERSION must match MAJOR.MINOR exactly (for example 1.2); got %s\n' "$(if $(VERSION),$(VERSION),<empty>)"; \
+	@if [ -n "$(VERSION_FILE)" ]; then \
+		if [ ! -s "$(VERSION_FILE)" ]; then \
+			printf 'error: VERSION_FILE must name a non-empty readable file: %s\n' "$(VERSION_FILE)"; \
+			exit 2; \
+		fi; \
+	elif [ -z "$(VERSION)" ]; then \
+		printf '%s\n' 'error: VERSION or VERSION_FILE must contain the exact non-empty release tag'; \
 		exit 2; \
 	fi
 
@@ -66,13 +72,13 @@ container-test: image
 		"$(BUILD_IMAGE)" make test-in-box
 
 release: check-version image
-	@printf '[container] Building release %s with %s...\n' "$(VERSION)" "$(CONTAINER_ENGINE)"
+	@printf '[container] Building release with %s...\n' "$(CONTAINER_ENGINE)"
 	@set -eu; \
 		container_id="$$( $(CONTAINER) create \
 			--env HOME=/tmp/elgatolight-home \
 			--env GOCACHE=/tmp/elgatolight-go-build \
 			--workdir /workspace \
-			"$(BUILD_IMAGE)" make release-in-box VERSION="$(VERSION)" DIST_DIR=/tmp/elgatolight-release )"; \
+			"$(BUILD_IMAGE)" make release-in-box VERSION="$(VERSION)" VERSION_FILE="$(VERSION_FILE)" DIST_DIR=/tmp/elgatolight-release )"; \
 		cleanup() { $(CONTAINER) rm --force "$$container_id" >/dev/null 2>&1 || true; }; \
 		trap cleanup EXIT HUP INT TERM; \
 		$(CONTAINER) start --attach "$$container_id"; \
@@ -98,8 +104,7 @@ build-in-box: test-in-box
 	@printf '%s\n' '[build] Complete: bin/elgatolight'
 
 release-in-box: check-version test-in-box
-	@printf '[release] Packaging version %s...\n' "$(VERSION)"
-	@VERSION="$(VERSION)" DIST_DIR="$(DIST_DIR)" ./scripts/build-release.sh
+	@VERSION="$(VERSION)" VERSION_FILE="$(VERSION_FILE)" DIST_DIR="$(DIST_DIR)" ./scripts/build-release.sh
 
 test-in-box: test-go-in-box test-python-in-box
 

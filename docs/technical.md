@@ -372,12 +372,22 @@ make dev DEV_ARGS='info --json'
 
 ## Releases and Forgejo Actions
 
-Versions and Git tags must match `MAJOR.MINOR` exactly, such as `1.2`. The
-version is injected into every binary at link time and `elgatolight --version`
-prints that exact string. Locally, the complete release can be reproduced with:
+Every non-empty Git tag is accepted as the release version. The exact tag is
+injected into every binary at link time, so tags such as `v0.1`, `0.1-rc1`, and
+`release/0.1+build` are preserved by `elgatolight --version`. Archive filenames
+use a filesystem-safe form of the tag. Locally, the complete release can be
+reproduced with:
 
 ```sh
-make release VERSION=1.2
+make release VERSION=v0.1
+```
+
+Automation can pass an opaque tag through a file, which preserves every
+character independently of Make and shell interpolation:
+
+```sh
+printf '%s' 'release/0.1+$channel' > .elgatolight-release-version
+make release VERSION_FILE=.elgatolight-release-version
 ```
 
 The command first runs every Go and Home Assistant test inside the Dockerfile
@@ -390,12 +400,12 @@ image, then writes archives and SHA-256 checksums under `dist/` for:
 Linux artifacts include the USB transport and self-installer. Windows and macOS
 artifacts provide the portable CLI, configuration, help, and version surface.
 
-`.forgejo/workflows/test.yaml` runs `make container-test` for pushes and pull
-requests. `.forgejo/workflows/release.yaml` accepts an existing exact
-`MAJOR.MINOR` tag, runs the same tests, builds all targets, and uploads `dist/`
-to a Forgejo release whose tag and title contain the exact version. Both jobs
-use the Forgejo runner label `ubuntu-24.04`, matching the deployment runner used
-by the referenced infrastructure project.
+`.forgejo/workflows/test.yaml` runs `make container-test` for branch pushes.
+Tag pushes run `.forgejo/workflows/release.yaml`, which accepts every existing
+Git tag, runs the same tests, builds all targets, and uploads `dist/` to the
+Forgejo release whose tag and title preserve the exact value. Both jobs use the
+Forgejo runner label `ubuntu-24.04`, matching the deployment runner used by the
+referenced infrastructure project.
 
 ## Protocol notes
 

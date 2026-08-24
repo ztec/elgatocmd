@@ -61,8 +61,15 @@ def test_forgejo_workflows_use_the_project_runner_and_container_build() -> None:
 
     assert "runs-on: ubuntu-24.04" in test_workflow
     assert "make container-test CONTAINER_ENGINE=docker" in test_workflow
+    assert 'branches:\n      - "**"' in test_workflow
+    assert "pull_request" not in test_workflow
+    assert "workflow_dispatch" not in test_workflow
     assert "runs-on: ubuntu-24.04" in release_workflow
-    assert "^[0-9]+\\.[0-9]+$" in release_workflow
+    assert 'tags:\n      - "**"' in release_workflow
+    assert "release tag is required" in release_workflow
+    assert "^[0-9]+\\.[0-9]+$" not in release_workflow
+    assert "printf '%s' \"${version}\" >.elgatolight-release-version" in release_workflow
+    assert "VERSION_FILE=.elgatolight-release-version" in release_workflow
     assert "make release CONTAINER_ENGINE=docker" in release_workflow
     assert "https://code.forgejo.org/actions/forgejo-release@v2.13.4" in release_workflow
     assert "release-dir: dist" in release_workflow
