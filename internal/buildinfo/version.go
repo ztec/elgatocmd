@@ -2,5 +2,5 @@
 package buildinfo
 
 // Version is "dev" for local builds. Release builds replace it through
-// -ldflags -X with the exact MAJOR.MINOR tag.
+// -ldflags -X with the exact release tag.
 var Version = "dev"

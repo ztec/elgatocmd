@@ -19,7 +19,7 @@ func newTestCommandApp(t *testing.T) *commandApp {
 		"CONFIG", "DEVICE", "LIGHT", "JSON", "TIMEOUT", "WATCH_INTERVAL", "LOG_INTERVAL",
 		"HOME_ASSISTANT_URL", "HOME_ASSISTANT_CREDENTIALS", "HOME_ASSISTANT_OAUTH_CALLBACK",
 		"HOME_ASSISTANT_INSECURE_SKIP_TLS_VERIFY", "DAEMON_POLL_INTERVAL", "DAEMON_RECONCILE_INTERVAL",
-		"DAEMON_CALL_TIMEOUT", "DAEMON_MIN_BACKOFF", "DAEMON_MAX_BACKOFF",
+		"DAEMON_CALL_TIMEOUT", "DAEMON_MIN_BACKOFF", "DAEMON_MAX_BACKOFF", "RELEASE_API", "SELF_UPDATE_FORCE",
 	} {
 		t.Setenv("ELGATOLIGHT_"+key, "")
 	}
@@ -32,7 +32,7 @@ func newTestCommandApp(t *testing.T) *commandApp {
 
 func TestHomeAssistantCommandTree(t *testing.T) {
 	app := newTestCommandApp(t)
-	for _, path := range []string{"pair", "daemon", "auth status", "auth revoke", "setup"} {
+	for _, path := range []string{"pair", "daemon", "auth status", "auth revoke", "setup", "self-update"} {
 		command, _, err := app.root.Find(strings.Fields(path))
 		if err != nil {
 			t.Fatalf("find %q: %v", path, err)
@@ -58,6 +58,25 @@ func TestVersionOutputIsExact(t *testing.T) {
 	}
 	if got, want := output.String(), applicationVersion()+"\n"; got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
+	}
+}
+
+func TestSelfUpdateConfiguration(t *testing.T) {
+	app := newTestCommandApp(t)
+	t.Setenv("ELGATOLIGHT_RELEASE_API", "https://updates.example.test/api")
+
+	command, _, err := app.root.Find([]string{"self-update"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Flags().Lookup("release-api") == nil || command.Flags().Lookup("force") == nil {
+		t.Fatal("self-update flags are incomplete")
+	}
+	if err := app.loadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if got := app.config.GetString("release.api"); got != "https://updates.example.test/api" {
+		t.Fatalf("release API = %q", got)
 	}
 }
 

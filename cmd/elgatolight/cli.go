@@ -14,6 +14,7 @@ import (
 	"elgatolight/internal/elgato"
 	"elgatolight/internal/homeassistant"
 	"elgatolight/internal/lights"
+	"elgatolight/internal/selfupdate"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,6 +40,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 	app.config.SetDefault("daemon.call_timeout", 10*time.Second)
 	app.config.SetDefault("daemon.min_backoff", time.Second)
 	app.config.SetDefault("daemon.max_backoff", 30*time.Second)
+	app.config.SetDefault("release.api", selfupdate.DefaultReleaseAPI)
 
 	root := &cobra.Command{
 		Use:           "elgatolight",
@@ -90,6 +92,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 		app.presetCommand(),
 		app.monitorCommand("watch"),
 		app.monitorCommand("log"),
+		app.selfUpdateCommand(),
 		app.pairCommand(),
 		app.authCommand(),
 		app.daemonCommand(),

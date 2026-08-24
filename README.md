@@ -54,6 +54,7 @@ elgatolight presets
 elgatolight preset 1
 elgatolight watch
 elgatolight log
+elgatolight self-update
 ```
 
 With one light, it is selected automatically. With multiple lights, `info`
@@ -62,7 +63,9 @@ in place, while `log` emits an initial state followed by JSON Lines changes.
 
 Run `elgatolight --help` for all commands. Add `~/.local/bin` to your `PATH`,
 invoke `~/.local/bin/elgatolight` directly, or choose another directory in the
-download installer.
+download installer. `elgatolight self-update` installs the latest verified
+release in place; use `sudo elgatolight self-update` when the executable is in
+a system-owned directory, then restart any running daemon service.
 
 ## Home Assistant usage
 

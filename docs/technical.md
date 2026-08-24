@@ -44,6 +44,21 @@ installs the binary in the interactively selected directory. The default is
 Set `ELGATOLIGHT_INSTALL_DIR` to choose the directory without a prompt. Set
 `ELGATOLIGHT_RELEASE_API` to use another compatible Forgejo release API.
 
+An installed binary can update itself in place:
+
+```sh
+elgatolight self-update
+```
+
+The command uses the same stable-release then pre-release selection as the
+installer, selects the current operating system and architecture, checks the
+archive against the published SHA-256 file, verifies that the downloaded
+binary reports the exact release tag, and atomically replaces the executable.
+It skips an exact version match unless `--force` is set. Use `--release-api` or
+`ELGATOLIGHT_RELEASE_API` for another compatible release API. An executable in
+a system-owned directory requires `sudo elgatolight self-update`. Restart the
+user or system daemon after a successful update.
+
 Setup infers the service mode from its privileges:
 
 - Run `elgatolight setup` as a regular user to pair with Home Assistant and
@@ -98,6 +113,7 @@ bin/elgatolight presets
 bin/elgatolight preset 1
 bin/elgatolight watch --interval 200ms
 bin/elgatolight log --interval 200ms
+bin/elgatolight self-update
 bin/elgatolight --json status
 bin/elgatolight status --json
 ```
@@ -152,6 +168,7 @@ ELGATOLIGHT_JSON=true bin/elgatolight info
 ELGATOLIGHT_LIGHT=A7BTB4251316ZB bin/elgatolight brightness 30
 ELGATOLIGHT_WATCH_INTERVAL=500ms bin/elgatolight watch
 ELGATOLIGHT_HOME_ASSISTANT_URL=https://homeassistant.example.test bin/elgatolight daemon
+ELGATOLIGHT_RELEASE_API=https://forge.example.test/api/v1/repos/owner/repository bin/elgatolight self-update
 ```
 
 By default, the program looks for `config.*` under
@@ -180,6 +197,9 @@ daemon:
   call_timeout: 10s
   min_backoff: 1s
   max_backoff: 30s
+
+release:
+  api: https://git2.riper.fr/api/v1/repos/ztec/elgatocmd
 ```
 
 Use `--config PATH` to select a different file. The option can also follow the
@@ -235,8 +255,8 @@ Home Assistant integration, run:
 Enter the externally reachable Home Assistant URL. Setup completes OAuth
 pairing, installs the user service, enables it for login, and starts it
 immediately. Run `sudo ./elgatolight setup` instead for a boot-time system
-service. To upgrade, run the download installer again, then rerun setup to
-preserve configuration and restart the service with the new binary.
+service. To upgrade, run `elgatolight self-update`, then restart the matching
+service. Rerun setup only when changing its configuration.
 
 For a foreground or manually supervised daemon, the first start supplies the
 Home Assistant URL:
@@ -321,9 +341,12 @@ Unchanged USB polls are not logged.
 To upgrade the Home Assistant side, download the update in HACS and restart
 Home Assistant. For manual installations, update the clone and copy the custom
 component into the persistent configuration volume again before restarting.
-To upgrade the daemon, run the download installer again and rerun
-`elgatolight setup` with the same user or system mode; matching credentials are
-preserved and the service is restarted.
+To upgrade the daemon, run `elgatolight self-update` as the account that owns
+the executable, adding sudo for a system-owned installation, then restart the
+matching service. Running the download installer again remains useful when
+moving the executable to a different location. Rerun `elgatolight setup` when
+the service configuration or executable path changes; matching credentials are
+preserved.
 
 The credential file supports moving the daemon while keeping the same Home
 Assistant address. Treat it as a secret and preserve mode `0600` when copying
