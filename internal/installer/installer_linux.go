@@ -338,7 +338,11 @@ func enableUserUnit(unitPath string, target TargetUser) error {
 	want := "../elgatolight.service"
 	existing, err := os.Readlink(link)
 	if err == nil {
-		if existing == want {
+		resolvedTarget := existing
+		if !filepath.IsAbs(resolvedTarget) {
+			resolvedTarget = filepath.Join(filepath.Dir(link), resolvedTarget)
+		}
+		if sameResolvedPath(resolvedTarget, unitPath) {
 			return nil
 		}
 		return fmt.Errorf("refusing to replace unexpected user service link %s -> %s", link, existing)
@@ -350,4 +354,15 @@ func enableUserUnit(unitPath string, target TargetUser) error {
 		return fmt.Errorf("enable user service: %w", err)
 	}
 	return changeLinkOwner(link, target.UID, target.GID)
+}
+
+func sameResolvedPath(left, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if left == right {
+		return true
+	}
+	resolvedLeft, leftErr := filepath.EvalSymlinks(left)
+	resolvedRight, rightErr := filepath.EvalSymlinks(right)
+	return leftErr == nil && rightErr == nil && filepath.Clean(resolvedLeft) == filepath.Clean(resolvedRight)
 }

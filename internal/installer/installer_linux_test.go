@@ -128,6 +128,64 @@ func TestUserInstallCanSkipAlreadyElevatedUSBSetup(t *testing.T) {
 	}
 }
 
+func TestUserInstallAcceptsSystemctlAbsoluteEnableLink(t *testing.T) {
+	withoutChown(t)
+	root := t.TempDir()
+	home := filepath.Join(root, "home", "alice")
+	unitPath := filepath.Join(home, ".config", "systemd", "user", "elgatolight.service")
+	wantsDir := filepath.Join(filepath.Dir(unitPath), "default.target.wants")
+	if err := os.MkdirAll(wantsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(wantsDir, "elgatolight.service")
+	if err := os.Symlink(unitPath, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply(Config{
+		Scope:            ScopeUser,
+		Target:           TargetUser{Name: "alice", Home: home, UID: 1000, GID: 1000},
+		BinaryPath:       testSource(t),
+		HomeAssistantURL: "https://ha.example.test",
+		CredentialsPath:  filepath.Join(home, ".local", "state", "elgatolight", "credentials.json"),
+		RootDir:          root,
+		SkipUSBRule:      true,
+		Run:              func(string, ...string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(link); err != nil || target != unitPath {
+		t.Fatalf("service link = %q, %v", target, err)
+	}
+}
+
+func TestUserInstallRefusesEnableLinkToAnotherUnit(t *testing.T) {
+	withoutChown(t)
+	root := t.TempDir()
+	home := filepath.Join(root, "home", "alice")
+	unitDir := filepath.Join(home, ".config", "systemd", "user")
+	wantsDir := filepath.Join(unitDir, "default.target.wants")
+	if err := os.MkdirAll(wantsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(unitDir, "another.service"), filepath.Join(wantsDir, "elgatolight.service")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply(Config{
+		Scope:            ScopeUser,
+		Target:           TargetUser{Name: "alice", Home: home, UID: 1000, GID: 1000},
+		BinaryPath:       testSource(t),
+		HomeAssistantURL: "https://ha.example.test",
+		CredentialsPath:  filepath.Join(home, ".local", "state", "elgatolight", "credentials.json"),
+		RootDir:          root,
+		SkipUSBRule:      true,
+		Run:              func(string, ...string) error { return nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected user service link") {
+		t.Fatalf("unexpected link error = %v", err)
+	}
+}
+
 func TestNoneSetupOnlyInstallsUSBRule(t *testing.T) {
 	withoutChown(t)
 	root := t.TempDir()

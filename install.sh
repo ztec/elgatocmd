@@ -139,8 +139,8 @@ version=$($destination --version 2>/dev/null || printf unknown)
 printf 'Installed elgatolight %s at %s\n' "$version" "$destination"
 printf '\nConfigure it with one of these commands:\n'
 printf '  %s setup\n' "$destination"
-printf '    User service: starts when you log in. Only the USB rule uses sudo.\n'
+printf '    User service: starts when you log in. Only the USB rule uses sudo.\n\n'
 printf '  sudo %s setup\n' "$destination"
-printf '    System service: starts at boot and runs as root.\n'
+printf '    System service: starts at boot and runs as root.\n\n'
 printf '  %s setup --scope none\n' "$destination"
 printf '    Command-line only: installs USB access without a daemon service.\n'
