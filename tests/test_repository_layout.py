@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
+REPOSITORY_URL = "https://github.com/ztec/elgatocmd"
 
 
 def test_hacs_layout_and_manifest() -> None:
@@ -31,12 +32,19 @@ def test_hacs_layout_and_manifest() -> None:
         assert manifest[key]
 
 
-def test_unpublished_repository_placeholder_is_explicit() -> None:
-    """RIP-311 has one searchable marker to replace after publication."""
-    manifest = (ROOT / "custom_components/elgatolight/manifest.json").read_text(
-        encoding="utf-8"
-    )
+def test_published_repository_metadata() -> None:
+    """Keep repository links and ownership tied to the canonical remote."""
+    manifest_text = (
+        ROOT / "custom_components/elgatolight/manifest.json"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "REPOSITORY_URL_PLACEHOLDER" in manifest
-    assert "REPOSITORY_URL_PLACEHOLDER" in readme
-    assert "RIP-311" in readme
+    technical_docs = (ROOT / "docs/technical.md").read_text(encoding="utf-8")
+    published_metadata = "\n".join((manifest_text, readme, technical_docs))
+    assert manifest["codeowners"] == ["@ztec"]
+    assert manifest["documentation"] == REPOSITORY_URL
+    assert manifest["issue_tracker"] == f"{REPOSITORY_URL}/issues"
+    assert REPOSITORY_URL in readme
+    assert "[Technical documentation](docs/technical.md)" in readme
+    assert len(readme.splitlines()) < 120
+    assert "PLACEHOLDER" not in published_metadata
