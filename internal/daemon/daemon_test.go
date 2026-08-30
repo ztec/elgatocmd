@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"elgatolight/internal/elgato"
-	"elgatolight/internal/hidraw"
-	"elgatolight/internal/homeassistant"
-	"elgatolight/internal/lights"
+	"git2.riper.fr/ztec/elgatocmd/internal/elgato"
+	"git2.riper.fr/ztec/elgatocmd/internal/hidraw"
+	"git2.riper.fr/ztec/elgatocmd/internal/homeassistant"
+	"git2.riper.fr/ztec/elgatocmd/internal/lights"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"

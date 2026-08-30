@@ -14,20 +14,23 @@ devices—from a fast CLI or as native Home Assistant lights.
 
 ## CLI
 
-Install the latest verified release for your Linux architecture with either
-`curl` or `wget`:
+Install the latest verified release for your Linux architecture:
 
 ```sh
-curl -fsSL https://git2.riper.fr/ztec/elgatocmd/raw/branch/main/install.sh | sh
-wget -qO- https://git2.riper.fr/ztec/elgatocmd/raw/branch/main/install.sh | sh
+(
+  release_installer="$(mktemp)" || exit
+  trap 'rm -f "$release_installer"' 0
+  curl -fsSL --proto '=https' --proto-redir '=https' \
+    https://git2.riper.fr/ztec/elgatocmd/raw/branch/main/install.sh \
+    -o "$release_installer" &&
+    sh "$release_installer"
+)
 ```
 
-The same installer is available from the GitHub mirror:
-
-```sh
-curl -fsSL https://github.com/ztec/elgatocmd/raw/refs/heads/main/install.sh | sh
-wget -qO- https://github.com/ztec/elgatocmd/raw/refs/heads/main/install.sh | sh
-```
+The installer and `elgatolight self-update` verify signed checksums against
+[Tmplt's public key registry](https://git2.riper.fr/ztec/tmplt/src/branch/main/release-keys).
+See the [technical reference](docs/technical.md#installation-and-usb-access)
+for the explicit checksum-only fallback when Ed25519-capable OpenSSL is unavailable.
 
 Choose how the light should be used:
 
@@ -84,13 +87,14 @@ start the service at login, or with `sudo` to start it at boot.
 
 ## Development and reference
 
-The Dockerfile is the shared build environment for local development and CI.
-Run `make container-test` with Podman or Docker, or `make build` for the
-Distrobox workflow.
+The Dockerfile is the shared Go and Python environment for local development
+and CI. Run `make ci` with Podman or Docker, `make build` for a tested
+binary, or `make shell` for the optional Distrobox workflow.
 
 See the [Technical documentation](docs/technical.md) for configuration, service
-management, manual installation, troubleshooting, development, releases, and
-protocol details.
+management, troubleshooting, and protocol details. Focused guides cover
+[development](docs/development.md), [releases](docs/releasing.md), and
+[template updates](docs/template.md).
 
 ## License
 

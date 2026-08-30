@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"elgatolight/internal/elgato"
-	"elgatolight/internal/hidraw"
-	"elgatolight/internal/lights"
+	"git2.riper.fr/ztec/elgatocmd/internal/elgato"
+	"git2.riper.fr/ztec/elgatocmd/internal/hidraw"
+	"git2.riper.fr/ztec/elgatocmd/internal/lights"
 )
 
 type lightSnapshot struct {

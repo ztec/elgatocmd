@@ -2,7 +2,7 @@
 // the HACS-installed Home Assistant custom integration.
 package homeassistant
 
-import "elgatolight/internal/lights"
+import "git2.riper.fr/ztec/elgatocmd/internal/lights"
 
 const ProtocolVersion = 2
 

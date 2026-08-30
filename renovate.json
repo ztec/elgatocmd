@@ -1,0 +1,101 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests"
+  ],
+  "enabledManagers": [
+    "custom.regex",
+    "dockerfile",
+    "github-actions",
+    "gomod",
+    "pip_requirements"
+  ],
+  "github-actions": {
+    "managerFilePatterns": [
+      "/(^|/)\\.forgejo/workflows/[^/]+\\.ya?ml(?:\\.jinja)?$/"
+    ]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.copier-answers\\.yml$/"
+      ],
+      "matchStrings": [
+        "_commit:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*\\n_src_path:\\s*https://git2\\.riper\\.fr/ztec/tmplt\\.git"
+      ],
+      "depNameTemplate": "Tmplt template",
+      "packageNameTemplate": "ztec/tmplt",
+      "datasourceTemplate": "forgejo-releases",
+      "registryUrlTemplate": "https://git2.riper.fr",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Makefile(?:\\.jinja)?$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?\\n[A-Z_]+ \\?= (?<currentValue>\\S+)"
+      ]
+    }
+  ],
+  "minimumReleaseAge": "30 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "semanticCommits": "enabled",
+  "semanticCommitScope": "deps",
+  "commitMessageExtra": "{{#if isPinDigest}}{{{newDigestShort}}}{{else}}{{#if isMajor}}{{prettyNewMajor}}{{else}}{{#if isSingleVersion}}{{prettyNewVersion}}{{else}}{{#if newValue}}{{{newValue}}}{{else}}{{{newDigestShort}}}{{/if}}{{/if}}{{/if}}{{/if}}",
+  "packageRules": [
+    {
+      "description": "Automerge tested non-major maintenance one dependency at a time",
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest",
+        "patch",
+        "minor"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "fast-forward",
+      "platformAutomerge": false,
+      "ignoreTests": false,
+      "rebaseWhen": "behind-base-branch"
+    },
+    {
+      "description": "Handle trusted Tmplt updates first without the public dependency cooldown",
+      "matchManagers": [
+        "custom.regex",
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "ztec/tmplt",
+        "git2.riper.fr/ztec/tmplt"
+      ],
+      "ignoreUnstable": false,
+      "minimumReleaseAge": null,
+      "groupName": null,
+      "branchTopic": "tmplt-template",
+      "commitMessageTopic": "Tmplt template",
+      "commitMessageExtra": "{{{prettyNewVersion}}}",
+      "prCreation": "immediate",
+      "recreateWhen": "always",
+      "postUpdateOptions": [
+        "gomodTidy"
+      ],
+      "postUpgradeTasks": {
+        "commands": [
+          "./scripts/renovate-tmplt-update.sh"
+        ],
+        "fileFilters": [
+          ".copier-answers.yml",
+          "go.mod",
+          "go.sum",
+          "**/*"
+        ],
+        "executionMode": "branch"
+      }
+    }
+  ]
+}

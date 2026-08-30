@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package cli
 
 import (
 	"bufio"
@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"elgatolight/internal/homeassistant"
-	"elgatolight/internal/installer"
+	"git2.riper.fr/ztec/elgatocmd/internal/homeassistant"
+	"git2.riper.fr/ztec/elgatocmd/internal/installer"
 
 	"github.com/spf13/cobra"
 )

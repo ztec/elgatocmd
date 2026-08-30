@@ -1,7 +1,11 @@
-/bin/
-/dist/
-/.elgatolight-release-version
+/.idea/
 /.venv/
 /.pytest_cache/
+/bin/
+/dist/
+/coverage.out
+/.release-signing-key
+/.elgatolight-release-version
+/.elgatolight-release-notes.md
 __pycache__/
 *.py[cod]

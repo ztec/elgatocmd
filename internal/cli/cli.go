@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"elgatolight/internal/elgato"
-	"elgatolight/internal/homeassistant"
-	"elgatolight/internal/lights"
-	"elgatolight/internal/selfupdate"
+	"git2.riper.fr/ztec/elgatocmd/internal/buildinfo"
+	"git2.riper.fr/ztec/elgatocmd/internal/elgato"
+	"git2.riper.fr/ztec/elgatocmd/internal/homeassistant"
+	"git2.riper.fr/ztec/elgatocmd/internal/lights"
+	"git2.riper.fr/ztec/elgatocmd/internal/selfupdate"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -25,6 +26,17 @@ type commandApp struct {
 	config       *viper.Viper
 	root         *cobra.Command
 	configLoaded bool
+}
+
+// Run executes the complete command tree with injectable streams.
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	selfupdate.CleanupStaleHelpers()
+	app, err := newCommandApp(ctx, stdout, stderr)
+	if err != nil {
+		return err
+	}
+	app.root.SetArgs(args)
+	return app.root.ExecuteContext(ctx)
 }
 
 func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, error) {
@@ -40,11 +52,11 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 	app.config.SetDefault("daemon.call_timeout", 10*time.Second)
 	app.config.SetDefault("daemon.min_backoff", time.Second)
 	app.config.SetDefault("daemon.max_backoff", 30*time.Second)
-	app.config.SetDefault("release.api", selfupdate.DefaultReleaseAPI)
+	app.config.SetDefault("release.api", buildinfo.ReleaseAPI)
 
 	root := &cobra.Command{
 		Use:           "elgatolight",
-		Short:         "Control Elgato Key Light Neo devices over USB",
+		Short:         buildinfo.Description,
 		Version:       applicationVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -98,6 +110,7 @@ func newCommandApp(ctx context.Context, stdout, stderr io.Writer) (*commandApp, 
 		app.daemonCommand(),
 		app.setupCommand(),
 		app.setupUSBCommand(),
+		app.replacementCommand(),
 	)
 	root.InitDefaultCompletionCmd()
 	return app, nil

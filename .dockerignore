@@ -1,7 +1,15 @@
 .git
+.idea
 .venv
+.pytest_cache
 bin
 dist
+coverage.out
 __pycache__
-*.pyc
-
+*.py[cod]
+*.key
+*.pem
+.release-signing-key
+.release-signing-key.pub
+.elgatolight-release-version
+.elgatolight-release-notes.md

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"elgatolight/internal/homeassistant"
-	"elgatolight/internal/lights"
+	"git2.riper.fr/ztec/elgatocmd/internal/homeassistant"
+	"git2.riper.fr/ztec/elgatocmd/internal/lights"
 )
 
 // Config contains the durable credentials and injected runtime dependencies.

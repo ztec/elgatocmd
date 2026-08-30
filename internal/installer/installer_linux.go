@@ -12,7 +12,7 @@ import (
 	"strings"
 	"text/template"
 
-	"elgatolight/packaging"
+	"git2.riper.fr/ztec/elgatocmd/packaging"
 )
 
 type Scope string

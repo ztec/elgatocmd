@@ -32,12 +32,16 @@ always recall the values currently stored in that slot.
 
 The root `install.sh` script selects the latest stable Forgejo release, falling
 back to the latest non-draft pre-release. It validates Linux, detects the CPU,
-verifies the archive against the published SHA-256 file, and asks for an
-install directory. Defaults are `~/.local/bin` for a regular user and
-`/usr/local/bin` for root.
+verifies the Ed25519 signature on the published SHA-256 file against the active
+keys in Tmplt's central registry, and verifies the selected archive. Installation
+defaults are `~/.local/bin` for a regular user and `/usr/local/bin` for root.
 
 Set `ELGATOLIGHT_INSTALL_DIR` for a noninteractive destination. The canonical
-and GitHub-mirror installer commands are in the [README](../README.md#cli).
+installer command is in the [README](../README.md#cli). If suitable OpenSSL
+support is unavailable, an interactive installation explains the checksum-only
+risk and asks for confirmation. Automation must opt in explicitly with
+`--skip-signature-verification` or
+`ELGATOLIGHT_SKIP_SIGNATURE_VERIFICATION=1`.
 
 The release binary embeds its udev rule and systemd units. `setup` installs USB
 access and optionally configures a daemon service:
@@ -74,10 +78,11 @@ first USB-rule installation.
 elgatolight self-update
 ```
 
-Self-update uses the same release selection and checksum verification as the
-installer, verifies the downloaded binary's embedded version, and replaces the
-executable atomically. It skips an exact version match unless `--force` is used.
-Use sudo for a system-owned executable, then restart the daemon service.
+Self-update uses the same release selection, central signing-key status, signed
+checksums, archive limits, and embedded-version verification as the installer.
+It replaces the executable atomically and skips an exact version match unless
+`--force` is used. Signature verification cannot be bypassed. Use sudo for a
+system-owned executable, then restart the daemon service.
 
 ## CLI and configuration
 
@@ -257,43 +262,39 @@ and by CI. The Makefile prefers Podman and falls back to Docker; override it wit
 | Target | Purpose |
 | --- | --- |
 | `make image` | Build the shared development image. |
-| `make container-test` | Run Go vet, Go tests, Python compilation, and Home Assistant tests. |
-| `make container-build` | Run all tests and produce `bin/elgatolight`. |
-| `make box` | Create or update the Distrobox from the same image. |
+| `make test` | Run Go, Home Assistant, script, release-policy, cross-build, and template-contract checks. |
+| `make security` | Scan reachable Go code for known vulnerabilities. |
+| `make ci` | Run the same complete test and security suite as Forgejo. |
+| `make build` | Run tests and produce `bin/elgatolight`. |
+| `make run` | Build and run the minimal non-root runtime image. |
 | `make shell` | Enter the development Distrobox. |
-| `make dev` | Run the live USB dashboard from source. |
-| `make build` | Default workstation target: test and build in Distrobox. |
+| `make tmplt-check` | Report the applied and latest Tmplt releases. |
+| `make tmplt-update` | Apply, normalize, and validate the latest Tmplt release. |
 
 The first image build downloads dependencies and can take several minutes;
-later builds use the container cache. Override the development command with, for
-example, `make dev DEV_ARGS='info --json'`.
+later builds use the container cache. See the focused
+[development guide](development.md) for native targets, Distrobox, dependency
+maintenance, and handoff checks.
 
 ## Releases and CI
 
-Every non-empty Git tag is accepted and embedded in binaries exactly as written;
-archive names use a filesystem-safe form. Reproduce a release locally with:
+Versions use `vMAJOR.MINOR`, with an optional prerelease suffix. Successful
+pushes to `main` calculate the next minor release; a valid version tag releases
+that exact commit. Reproduce a signed release locally with:
 
 ```sh
 make release VERSION=v0.1
 ```
 
-For characters that should not pass through Make or shell interpolation, use a
-file:
+Release output under `dist/` contains reproducible Linux archives for amd64,
+arm64, and armv7, a SHA-256 checksum file, and its Ed25519 signature.
 
-```sh
-printf '%s' 'release/0.1+$channel' > .elgatolight-release-version
-make release VERSION_FILE=.elgatolight-release-version
-```
-
-Release output under `dist/` contains checksummed Linux binaries for amd64,
-arm64, and armv7.
-
-`.forgejo/workflows/test.yaml` runs `make container-test` on branch pushes.
-Tag pushes run `.forgejo/workflows/release.yaml`, test every target, and publish
-the exact tag through the `ubuntu-24.04` runner. The workflow publishes a
-pre-release with explicit title and notes, hides generated source archives, and
-refreshes tested assets on reruns without replacing the Git tag or its annotated
-message.
+`.forgejo/workflows/test.yaml` validates pull requests and manual runs.
+`.forgejo/workflows/test-and-release.yaml` validates `main`, version tags, and
+published releases before building, signing, and publishing immutable artifacts
+through the `ubuntu-24.04` runner. See the focused
+[release guide](releasing.md) for version policy, signing, retry behavior, and
+release-note generation.
 
 Without a GitHub Release, HACS tracks the GitHub mirror's default branch by
 commit. A GitHub Release makes its tag the named HACS version; a mirrored tag or

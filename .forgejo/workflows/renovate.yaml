@@ -1,0 +1,136 @@
+name: Dependency updates
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .copier-answers.yml
+      - renovate.json
+      - .forgejo/workflows/renovate.yaml
+  schedule:
+    - cron: "17 5,17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  cancel-in-progress: true
+
+jobs:
+  renovate:
+    if: vars.RENOVATE_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the template-first maintenance policy
+        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Run Renovate for this repository
+        shell: bash
+        env:
+          RENOVATE_GITHUB_COM_TOKEN: ${{ secrets.RENOVATE_GH_TOKEN }}
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RENOVATE_TOKEN}" || { echo 'error: RENOVATE_TOKEN is required' >&2; exit 2; }
+
+          full_force=
+          template_force='{"includePaths":[".copier-answers.yml"],"prHourlyLimit":0,"pruneStaleBranches":false}'
+          template_cleanup_force='{"includePaths":[".copier-answers.yml"],"prHourlyLimit":0,"pruneStaleBranches":true}'
+          if [ "${FORGEJO_EVENT_NAME}" = workflow_dispatch ]; then
+            full_force='{"schedule":null}'
+            template_force='{"includePaths":[".copier-answers.yml"],"prHourlyLimit":0,"pruneStaleBranches":false,"schedule":null}'
+            template_cleanup_force='{"includePaths":[".copier-answers.yml"],"prHourlyLimit":0,"pruneStaleBranches":true,"schedule":null}'
+          fi
+
+          github_token_args=()
+          if [ -n "${RENOVATE_GITHUB_COM_TOKEN}" ]; then
+            github_token_args+=(--env RENOVATE_GITHUB_COM_TOKEN)
+          fi
+
+          run_renovate() {
+            local force_config=$1
+            local force_args=()
+            if [ -n "${force_config}" ]; then
+              force_args+=(--env "RENOVATE_FORCE=${force_config}")
+            fi
+            docker run --rm \
+              "${force_args[@]}" \
+              "${github_token_args[@]}" \
+              --env LOG_LEVEL=info \
+              --env 'RENOVATE_ALLOWED_COMMANDS=["^./scripts/renovate-tmplt-update\\.sh$"]' \
+              --env RENOVATE_AUTODISCOVER=false \
+              --env RENOVATE_DOCKER_MAX_PAGES=10 \
+              --env RENOVATE_ENDPOINT="${FORGEJO_SERVER_URL%/}/api/v1" \
+              --env RENOVATE_PLATFORM=forgejo \
+              --env RENOVATE_REPOSITORIES="[\"${FORGEJO_REPOSITORY}\"]" \
+              --env RENOVATE_TOKEN \
+              ghcr.io/renovatebot/renovate:44.46.4@sha256:3b64619da15eec8cc7eb7e422698736d6e129bf0832e8b90fe956706cde3c133
+          }
+
+          template_branch=renovate/tmplt-template
+          template_pr_open() {
+            local page=1
+            local response
+            while :; do
+              response="${RUNNER_TEMP}/tmplt-pulls-${page}.json"
+              curl --fail --silent --show-error \
+                -H "Authorization: token ${RENOVATE_TOKEN}" \
+                "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/pulls?state=open&limit=50&page=${page}" \
+                >"${response}"
+
+              if jq -e \
+                --arg branch "${template_branch}" \
+                --arg repository "${FORGEJO_REPOSITORY}" \
+                'any(.[]; .head.ref == $branch and .head.repo.full_name == $repository)' \
+                "${response}" >/dev/null; then
+                return 0
+              fi
+
+              [ "$(jq 'length' "${response}")" -lt 50 ] && return 1
+              page=$((page + 1))
+            done
+          }
+
+          if ! template_pr_open; then
+            escaped_branch=$(jq -nr --arg branch "${template_branch}" '$branch | @uri')
+            branch_response="${RUNNER_TEMP}/tmplt-branch.json"
+            branch_status=$(curl --silent --show-error \
+              --output "${branch_response}" \
+              --write-out '%{http_code}' \
+              -H "Authorization: token ${RENOVATE_TOKEN}" \
+              "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/branches/${escaped_branch}")
+            case "${branch_status}" in
+              200)
+                echo 'Removing stale Tmplt update branch before recreating its proposal.'
+                curl --fail --silent --show-error \
+                  --request DELETE \
+                  -H "Authorization: token ${RENOVATE_TOKEN}" \
+                  "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/branches/${escaped_branch}"
+                ;;
+              404) ;;
+              *)
+                cat "${branch_response}" >&2
+                echo "error: Forgejo returned ${branch_status} while inspecting ${template_branch}" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          run_renovate "${template_force}"
+
+          if template_pr_open; then
+            echo 'Tmplt update PR is open; retiring ordinary dependency PRs until it merges.'
+            run_renovate "${template_cleanup_force}"
+            exit 0
+          fi
+
+          if ! ./scripts/renovate-tmplt-ready.sh; then
+            echo 'Deferring ordinary dependency proposals until Tmplt source maintenance is released.'
+            exit 0
+          fi
+
+          run_renovate "${full_force}"

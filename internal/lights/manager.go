@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"elgatolight/internal/elgato"
-	"elgatolight/internal/hidraw"
+	"git2.riper.fr/ztec/elgatocmd/internal/elgato"
+	"git2.riper.fr/ztec/elgatocmd/internal/hidraw"
 )
 
 // DeviceClient is the subset of the Elgato client needed by the manager.

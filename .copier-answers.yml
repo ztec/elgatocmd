@@ -1,0 +1,16 @@
+_commit: v0.33.0
+_src_path: https://git2.riper.fr/ztec/tmplt.git
+binary_name: elgatolight
+copyright_holder: ztec
+description: Control Elgato Key Light Neo devices over Linux USB and bridge them to
+    Home Assistant.
+display_name: Elgato Key Light Neo USB controller
+environment_prefix: ELGATOLIGHT
+forgejo_owner: ztec
+forgejo_ssh_host: git.riper.fr
+forgejo_ssh_port: 22023
+forgejo_web_origin: https://git2.riper.fr
+module_path: git2.riper.fr/ztec/elgatocmd
+platform_scope: linux
+repository_name: elgatocmd
+version_components: 2

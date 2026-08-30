@@ -1,11 +1,11 @@
-package main
+package cli
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 
-	"elgatolight/internal/hidraw"
+	"git2.riper.fr/ztec/elgatocmd/internal/hidraw"
 )
 
 func TestSnapshotTreeLines(t *testing.T) {

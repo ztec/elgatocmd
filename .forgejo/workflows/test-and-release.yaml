@@ -1,0 +1,264 @@
+name: Test and release
+
+env:
+  VERSION_COMPONENTS: "2"
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-and-release-${{ forgejo.sha }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run the containerized quality and security suite
+        run: make ci CONTAINER_ENGINE=docker
+      - name: Smoke-test the non-root runtime image
+        run: make container-smoke CONTAINER_ENGINE=docker VERSION=ci
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      sha: ${{ steps.release.outputs.sha }}
+      title: ${{ steps.release.outputs.title }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out source and complete tag history
+        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Calculate version and release notes
+        id: release
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forge.token }}
+        run: |
+          set -euo pipefail
+          source_prerelease=false
+          case "${FORGEJO_EVENT_NAME}" in
+            release)
+              version="$(jq -er '.release.tag_name' "${FORGEJO_EVENT_PATH}")"
+              source_prerelease="$(jq -r '.release.prerelease // false' "${FORGEJO_EVENT_PATH}")"
+              ;;
+            push) case "${FORGEJO_REF}" in
+              refs/tags/*) version="${FORGEJO_REF_NAME}" ;;
+              *) version="$(./scripts/next-release-version.sh "${FORGEJO_SHA}")" ;;
+            esac ;;
+            *) version="$(./scripts/next-release-version.sh "${FORGEJO_SHA}")" ;;
+          esac
+          policy="$(./scripts/release-policy.sh "${version}" "${source_prerelease}")"
+          title="$(sed -n 's/^title=//p' <<<"${policy}")"
+          prerelease="$(sed -n 's/^prerelease=//p' <<<"${policy}")"
+          notes_mode=final
+          if [[ "${prerelease}" == true ]]; then
+            notes_mode=provisional
+          fi
+          stable_tags="${RUNNER_TEMP}/elgatolight-stable-release-tags"
+          : >"${stable_tags}"
+          page=1
+          while true; do
+            response="${RUNNER_TEMP}/elgatolight-release-history-${page}.json"
+            curl --fail --silent --show-error --proto '=https' --proto-redir '=https' \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?limit=50&page=${page}" \
+              >"${response}"
+            count="$(jq 'length' "${response}")"
+            while IFS= read -r tag; do
+              [[ "${tag}" =~ ^v[1-9][0-9]*\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$ ]] || continue
+              [[ "${tag}" != "${version}" ]] || continue
+              git rev-parse --verify --quiet "${tag}^{commit}" >/dev/null || continue
+              git merge-base --is-ancestor "${tag}^{commit}" "${FORGEJO_SHA}" || continue
+              printf '%s\n' "${tag}" >>"${stable_tags}"
+            done < <(jq -r '.[] | select(.draft == false and .prerelease == false) | .tag_name' "${response}")
+            (( count < 50 )) && break
+            page=$((page + 1))
+          done
+          previous_stable=-
+          if [[ -s "${stable_tags}" ]]; then
+            previous_stable="$(sort -Vu "${stable_tags}" | tail -n 1)"
+          fi
+          ./scripts/release-notes.sh \
+            "${version}" "${FORGEJO_SHA}" "${notes_mode}" \
+            "${FORGEJO_SERVER_URL%/}/${FORGEJO_REPOSITORY}" "${previous_stable}" \
+            >.elgatolight-release-notes.md
+          printf '%s\n' "${version}" >.elgatolight-release-version
+          echo "version=${version}" >>"${FORGEJO_OUTPUT}"
+          echo "prerelease=${prerelease}" >>"${FORGEJO_OUTPUT}"
+          echo "sha=$(git rev-parse HEAD)" >>"${FORGEJO_OUTPUT}"
+          echo "title=${title}" >>"${FORGEJO_OUTPUT}"
+
+      - name: Build and sign every release target
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_SIGNING_KEY}" || { echo 'error: RELEASE_SIGNING_KEY secret is required' >&2; exit 2; }
+          make release \
+            CONTAINER_ENGINE=docker \
+            VERSION_FILE=.elgatolight-release-version
+          mv .elgatolight-release-notes.md dist/elgatolight-release-notes.md
+
+      - name: Preserve verified release artifacts
+        uses: https://data.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e # Forgejo v4
+        with:
+          name: elgatolight-${{ steps.release.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the verified release policy
+        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+
+      - name: Restore verified release artifacts
+        uses: https://data.forgejo.org/forgejo/download-artifact@d8d0a99033603453ad2255e58720b460a0555e1e # Forgejo v4
+        with:
+          name: elgatolight-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Separate release notes from downloadable assets
+        run: mv dist/elgatolight-release-notes.md .elgatolight-release-notes.md
+
+      - name: Normalize version titles and prerelease flags
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forge.token }}
+        run: |
+          set -euo pipefail
+          page=1
+          while true; do
+            response="${RUNNER_TEMP}/elgatolight-releases-${page}.json"
+            curl --fail --silent --show-error --proto '=https' --proto-redir '=https' \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases?limit=50&page=${page}" \
+              >"${response}"
+            count="$(jq 'length' "${response}")"
+            while IFS= read -r release; do
+              id="$(jq -r '.id' <<<"${release}")"
+              tag="$(jq -r '.tag_name' <<<"${release}")"
+              title="$(jq -r '.name' <<<"${release}")"
+              prerelease="$(jq -r '.prerelease' <<<"${release}")"
+              [[ "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || continue
+              desired_prerelease="${prerelease}"
+              if [[ "${tag}" == v0.* || "${tag}" == *-* ]]; then
+                desired_prerelease=true
+              fi
+              if [[ "${title}" != "${tag}" || "${prerelease}" != "${desired_prerelease}" ]]; then
+                payload="$(jq -n --arg name "${tag}" --argjson prerelease "${desired_prerelease}" \
+                  '{name: $name, prerelease: $prerelease}')"
+                curl --fail --silent --show-error --proto '=https' --proto-redir '=https' \
+                  -X PATCH -H "Authorization: token ${FORGEJO_TOKEN}" -H 'Content-Type: application/json' \
+                  --data-raw "${payload}" \
+                  "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${id}" >/dev/null
+              fi
+            done < <(jq -c '.[]' "${response}")
+            (( count < 50 )) && break
+            page=$((page + 1))
+          done
+
+      - name: Create or verify the annotated release tag
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forge.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.version }}
+          RELEASE_SHA: ${{ needs.build.outputs.sha }}
+          RELEASE_TITLE: ${{ needs.build.outputs.title }}
+        run: |
+          set -euo pipefail
+          tag_response="${RUNNER_TEMP}/elgatolight-release-tag.json"
+          tag_status="$(curl --silent --show-error --proto '=https' --proto-redir '=https' \
+            --output "${tag_response}" --write-out '%{http_code}' \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/tags/${RELEASE_TAG}")"
+          case "${tag_status}" in
+            200)
+              existing_sha="$(jq -r '.commit.sha // empty' "${tag_response}")"
+              [[ "${existing_sha}" == "${RELEASE_SHA}" ]] || { echo "error: ${RELEASE_TAG} points to ${existing_sha}, expected ${RELEASE_SHA}" >&2; exit 1; }
+              ;;
+            404)
+              notes="$(cat .elgatolight-release-notes.md)"
+              payload="$(jq -n --arg tag "${RELEASE_TAG}" --arg target "${RELEASE_SHA}" --arg message "${RELEASE_TITLE}\n\n${notes}" \
+                '{tag_name: $tag, target: $target, message: $message}')"
+              curl --fail --silent --show-error --proto '=https' --proto-redir '=https' \
+                -X POST -H "Authorization: token ${FORGEJO_TOKEN}" -H 'Content-Type: application/json' \
+                --data-raw "${payload}" "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/tags" >/dev/null
+              ;;
+            *) echo "error: inspect release tag: Forgejo returned HTTP ${tag_status}" >&2; exit 1 ;;
+          esac
+
+      - name: Check for an existing immutable release
+        id: existing
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ forge.token }}
+          RELEASE_BINARY: elgatolight
+          RELEASE_TAG: ${{ needs.build.outputs.version }}
+          RELEASE_EVENT_NAME: ${{ forgejo.event_name }}
+        run: |
+          set -euo pipefail
+          response="${RUNNER_TEMP}/elgatolight-existing-release.json"
+          status="$(curl --silent --show-error --proto '=https' --proto-redir '=https' \
+            --output "${response}" --write-out '%{http_code}' \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${FORGEJO_SERVER_URL%/}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          case "${status}" in
+            200)
+              signature="${RELEASE_BINARY}-${RELEASE_TAG}-checksums.txt.sig"
+              expected_assets="${RUNNER_TEMP}/elgatolight-expected-release-assets"
+              actual_assets="${RUNNER_TEMP}/elgatolight-actual-release-assets"
+              find dist -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort >"${expected_assets}"
+              jq -r '.assets[]?.name' "${response}" | LC_ALL=C sort >"${actual_assets}"
+              ./scripts/release-existence-policy.sh \
+                "${RELEASE_EVENT_NAME}" "${signature}" "${expected_assets}" "${actual_assets}" \
+                >>"${FORGEJO_OUTPUT}"
+              ;;
+            404)
+              echo 'exists=false' >>"${FORGEJO_OUTPUT}"
+              echo 'replace=false' >>"${FORGEJO_OUTPUT}"
+              echo 'reason=missing' >>"${FORGEJO_OUTPUT}"
+              ;;
+            *) echo "error: inspect release: Forgejo returned HTTP ${status}" >&2; exit 1 ;;
+          esac
+
+      - name: Publish the immutable Forgejo release
+        if: steps.existing.outputs.exists != 'true'
+        uses: https://code.forgejo.org/actions/forgejo-release@98265452477dafb3f0f27ba9c462c90b18cb44fd # v2.13.4
+        with:
+          direction: upload
+          override: ${{ steps.existing.outputs.replace }}
+          prerelease: ${{ needs.build.outputs.prerelease }}
+          hide-archive-link: true
+          tag: ${{ needs.build.outputs.version }}
+          sha: ${{ needs.build.outputs.sha }}
+          title: ${{ needs.build.outputs.title }}
+          release-dir: dist
+          release-notes-file: .elgatolight-release-notes.md

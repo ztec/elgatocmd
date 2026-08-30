@@ -1,15 +1,24 @@
 name: Test
 
 on:
-  push:
-    branches:
-      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ forgejo.event.pull_request.head.repo.full_name || forgejo.repository }}-${{ forgejo.event.pull_request.head.ref || forgejo.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
-      - name: Build the test image and run all tests
-        run: make container-test CONTAINER_ENGINE=docker
+        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run the containerized quality and security suite
+        run: make ci CONTAINER_ENGINE=docker
+      - name: Smoke-test the non-root runtime image
+        run: make container-smoke CONTAINER_ENGINE=docker VERSION=ci

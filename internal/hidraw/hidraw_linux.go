@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"elgatolight/internal/protocol"
+	"git2.riper.fr/ztec/elgatocmd/internal/protocol"
 )
 
 const (

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"elgatolight/internal/daemon"
-	"elgatolight/internal/homeassistant"
-	"elgatolight/internal/lights"
+	"git2.riper.fr/ztec/elgatocmd/internal/daemon"
+	"git2.riper.fr/ztec/elgatocmd/internal/homeassistant"
+	"git2.riper.fr/ztec/elgatocmd/internal/lights"
 
 	"github.com/spf13/cobra"
 )
