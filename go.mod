@@ -3,7 +3,7 @@ module git2.riper.fr/ztec/elgatocmd
 go 1.25.0
 
 require (
-	git2.riper.fr/ztec/tmplt v0.33.0
+	git2.riper.fr/ztec/tmplt v0.34.0
 	github.com/coder/websocket v1.8.15
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
