@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run the containerized quality and security suite
         run: make ci CONTAINER_ENGINE=docker
       - name: Smoke-test the non-root runtime image
@@ -43,7 +43,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
     steps:
       - name: Check out source and complete tag history
-        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -135,7 +135,7 @@ jobs:
       contents: write
     steps:
       - name: Check out the verified release policy
-        uses: https://code.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.build.outputs.sha }}
 
