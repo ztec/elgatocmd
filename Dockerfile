@@ -1,6 +1,6 @@
 FROM docker.io/library/golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS go-toolchain
 
-FROM registry.fedoraproject.org/fedora:44@sha256:3268e5bae2fe6d048db1b38d8b0faa0373ce86d4a21e1d966fa62b34345f9696 AS dev
+FROM registry.fedoraproject.org/fedora:44@sha256:a58a82ed658c109c104e97fdcce52690337cff52e68dc8fa9c033a5fe38dfeec AS dev
 
 COPY --from=go-toolchain /usr/local/go /usr/local/go
 RUN dnf install --assumeyes \
