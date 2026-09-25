@@ -21,14 +21,14 @@ COPIER_FILE := tools/copier/Containerfile
 # renovate: datasource=docker depName=docker.io/library/golang versioning=docker
 GO_SECURITY_VERSION ?= 1.26.6
 # renovate: datasource=go depName=golang.org/x/vuln
-GOVULNCHECK_VERSION ?= v1.6.0
+GOVULNCHECK_VERSION ?= v1.7.0
 
-.PHONY: help test build run security ci test-native build-native run-native security-native ci-native fmt fmt-check vet verify unit race coverage python-test scripts-check release-version-test cross-build template-contract image image-runtime copier-image container-test container-security container-ci container-build container-deps-tidy container-smoke deps-tidy box box-replace shell tmplt-check tmplt-update tmplt-update-preflight tmplt-update-validate check-container-engine check-version release release-in-container clean
+.PHONY: help test build run security ci test-native build-native run-native security-native ci-native fmt fmt-check vet verify unit race coverage scripts-check release-version-test cross-build template-contract image image-runtime copier-image container-test container-security container-ci container-build container-deps-tidy container-smoke deps-tidy box box-replace shell tmplt-check tmplt-update tmplt-update-preflight tmplt-update-validate check-container-engine check-version release release-in-container clean
 
 help:
 	@printf '%s\n' \
 		'Elgato Key Light Neo USB controller development commands (Podman or Docker is the only required tool):' \
-		'  make test          Run Go, Home Assistant, script, release, and cross-build checks' \
+		'  make test          Run formatting, vet, unit, race, coverage, script, and cross-build checks' \
 		'  make security      Scan reachable Go code for known vulnerabilities' \
 		'  make ci            Run test and security exactly as CI does' \
 		'  make build         Produce bin/elgatolight' \
